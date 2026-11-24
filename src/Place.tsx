@@ -140,7 +140,7 @@ export function PlaceDetail({ place, onUpdate, onRemove, onClose }: { place: Pla
       )}
       <div className="row detail__actions">
         <button className={'btn ' + (place.visited ? '' : 'btn--dark')} onClick={() => onUpdate({ visited: !place.visited })}>{place.visited ? 'Visited ✓' : 'Mark as visited'}</button>
-        <a className="btn" href={`https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lng}`} target="_blank" rel="noreferrer">Open in Google Maps ↗</a>
+        <a className="btn" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([place.name, place.address].filter(Boolean).join(', '))}`} target="_blank" rel="noreferrer">Open in Google Maps ↗</a>
       </div>
     </aside>
   );
