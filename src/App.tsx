@@ -267,23 +267,53 @@ function PlanForm({ count, onPlan, onCancel }: { count: number; onPlan: (o: Plan
   );
 }
 
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
+const isReelLink = (u: string) => /instagram\.com\/(?:[\w.]+\/)?(?:reels?|p|tv)\/[\w-]{5,}/i.test(u);
+
 function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string) => void }) {
   const [url, setUrl] = useState('');
   const [caption, setCaption] = useState('');
+  const [author, setAuthor] = useState('');
+  const [status, setStatus] = useState<'idle' | 'reading' | 'read' | 'failed'>('idle');
+  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<{ phrase: string; matches: SearchResult[] }[]>();
   const [added, setAdded] = useState<Set<string>>(new Set());
 
-  const run = async () => {
+  const findPlaces = async (text: string) => {
     setBusy(true);
-    const phrases = candidatesFromCaption(caption);
     const out = [];
-    for (const phrase of phrases) {
+    for (const phrase of candidatesFromCaption(text)) {
       try { out.push({ phrase, matches: (await searchPlaces(phrase, near)).slice(0, 3) }); } catch { out.push({ phrase, matches: [] }); }
     }
     setFound(out);
     setBusy(false);
   };
+
+  // Read the caption automatically as soon as a reel link is pasted.
+  useEffect(() => {
+    const link = url.trim();
+    setFound(undefined);
+    if (!isReelLink(link)) { setStatus('idle'); setError(''); return; }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setStatus('reading'); setError('');
+      try {
+        const r = await fetch(`${API_BASE}/api/reel?url=${encodeURIComponent(link)}`);
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok || !data.caption) throw new Error(data.error || 'Couldn’t read this reel automatically.');
+        setCaption(data.caption); setAuthor(data.author ?? ''); setStatus('read');
+        findPlaces(data.caption);
+      } catch (e) {
+        if (cancelled) return;
+        setStatus('failed');
+        setError(e instanceof Error && !/Unexpected|JSON|fetch/i.test(e.message) ? e.message : 'Couldn’t read this reel automatically.');
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -292,17 +322,31 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
           <h2>Import from an Instagram reel</h2>
           <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon d="M6 6l12 12M18 6L6 18" /></button>
         </div>
-        <label className="field">Reel link
-          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.instagram.com/reel/…" />
+        <label className="field">Paste a reel link
+          <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.instagram.com/reel/…" autoFocus />
         </label>
-        <label className="field">Caption (copy it from Instagram)
-          <textarea rows={4} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="📍 Pastéis de Belém — best custard tarts in Lisbon…" />
-        </label>
-        <p className="muted small">This first version reads the caption. Listening to the voiceover and checking the video frames needs our AI server, which comes next. Instagram doesn't let apps read saved reels directly.</p>
-        <button className="btn btn--primary" onClick={run} disabled={busy || caption.trim().length < 3}>{busy ? 'Finding places…' : 'Find places'}</button>
+        {url.trim() && !isReelLink(url.trim()) && <p className="warn small">That doesn’t look like an Instagram reel link.</p>}
+        {status === 'reading' && <p className="muted small">Reading the reel’s caption…</p>}
+        {status === 'read' && (
+          <div className="caption-box">
+            <div className="small"><strong>Caption{author ? ` by @${author}` : ''}</strong></div>
+            <p className="caption-text">{caption}</p>
+          </div>
+        )}
+        {status === 'failed' && (
+          <>
+            <p className="warn small">{error} You can paste the caption below instead.</p>
+            <label className="field">Caption
+              <textarea rows={4} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="📍 Pastéis de Belém — best custard tarts in Lisbon…" />
+            </label>
+            <button className="btn btn--primary" onClick={() => findPlaces(caption)} disabled={busy || caption.trim().length < 3}>{busy ? 'Finding places…' : 'Find places'}</button>
+          </>
+        )}
+        {busy && status === 'read' && <p className="muted small">Finding places on the map…</p>}
+        <p className="muted small">The app reads the caption by itself. Listening to the voiceover and checking the video frames come next.</p>
         {found && (
           <div className="found">
-            {found.length === 0 && <p className="muted">No place names found in the caption. Try adding the place name with a 📍.</p>}
+            {found.length === 0 && <p className="muted">No place names found in the caption.</p>}
             {found.map((f) => (
               <div key={f.phrase} className="found__item">
                 <div className="muted small">Found “{f.phrase}”</div>
