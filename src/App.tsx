@@ -4,7 +4,8 @@ import { CATEGORIES, categoryById } from './categories';
 import { candidatesFromCaption, searchPlaces, type SearchResult } from './geocode';
 import { fmtMinutes, planTrip, type PlanOptions } from './planner';
 import { loadMaps, newMap, saveMaps } from './storage';
-import type { CategoryId, DayPlan, Listing, Place, TripMap } from './types';
+import type { CategoryId, DayPlan, Listing, PendingPlace, Place, TripMap } from './types';
+import { ConfirmPlace, PlaceDetail } from './Place';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -41,7 +42,7 @@ export default function App() {
   const [dropped, setDropped] = useState<Place[]>([]);
   const [activeDay, setActiveDay] = useState<number>();
 
-  useEffect(() => saveMaps(maps), [maps]);
+  useEffect(() => setStorageWarning(!saveMaps(maps)), [maps]);
 
   const switchMap = (id: string) => {
     setMapId(id); setPlan(undefined); setActiveDay(undefined); setSelectedId(undefined); setFilter('all'); setMapsOpen(false);
@@ -92,13 +93,22 @@ export default function App() {
     requestAnimationFrame(() => cardsRef.current?.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }));
   }, [places]);
 
-  const addPlace = (r: SearchResult, source: Place['source'] = 'search', reelUrl?: string) => {
-    const p: Place = { id: uid(), name: r.name, lat: r.lat, lng: r.lng, address: r.address, category: r.category, source, reelUrl };
-    setPlaces((ps) => [...ps, p]);
-    setPlan(undefined);
+  // Option A: a chosen result is previewed on the map first; it's saved only on "Add to map".
+  const [pending, setPending] = useState<PendingPlace>();
+  const [storageWarning, setStorageWarning] = useState(false);
+  const preview = (r: SearchResult, extra: Partial<PendingPlace> = {}) => {
+    setPending({ name: r.name, lat: r.lat, lng: r.lng, address: r.address, category: r.category, source: 'search', photos: [], ...extra });
+    setPlan(undefined); setSelectedId(undefined);
     setQuery(''); setResults([]);
+    setFlyTo({ lat: r.lat, lng: r.lng, key: Date.now() });
+  };
+  const confirmPending = () => {
+    if (!pending) return;
+    const p: Place = { ...pending, id: uid() };
+    setPlaces((ps) => [...ps, p]);
+    setPending(undefined);
+    setFilter('all');
     setSelectedId(p.id);
-    setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() });
   };
 
   const update = (id: string, patch: Partial<Place>) => setPlaces((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
@@ -128,10 +138,10 @@ export default function App() {
                   const c = categoryById(r.category);
                   return (
                     <li key={i}>
-                      <button className="result" onClick={() => addPlace(r)}>
+                      <button className="result" onClick={() => preview(r)}>
                         <span className="dot" style={{ background: c.color }} />
                         <span className="result__text"><strong>{r.name}</strong><small>{r.address || c.label}</small></span>
-                        <span className="result__add">Add as {c.label}</span>
+                        <span className="result__add">Show on map</span>
                       </button>
                     </li>
                   );
@@ -160,24 +170,33 @@ export default function App() {
       </header>
 
       <main className="stage">
-        <MapView places={mapPlaces} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo} />
+        <MapView places={mapPlaces} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo}
+          preview={pending} onPreviewMove={(lat, lng) => setPending((p) => (p ? { ...p, lat, lng } : p))} />
+        {storageWarning && <div className="toast" role="status">This browser is out of storage space, so recent changes may not be saved. Remove some photos to free space.</div>}
+        {pending && <ConfirmPlace pending={pending} onChange={setPending} onCancel={() => setPending(undefined)} onAdd={confirmPending} />}
 
-        {!plan && (
+        {!plan && !pending && (
           <button className="fab" onClick={() => setPanel('plan')} disabled={!places.length}>
             Plan trip from {places.length} places
           </button>
         )}
 
-        {!plan && visible.length > 0 && (
+        {!plan && !pending && visible.length > 0 && (
           <div className="cards" ref={cardsRef}>
             {visible.map((p) => {
               const c = categoryById(p.category);
               return (
                 <button key={p.id} data-id={p.id} className={'card' + (p.id === selectedId ? ' card--on' : '')} onClick={() => select(p.id)}>
-                  <span className="card__thumb" style={{ background: c.tint, color: c.color }}><Icon d={c.icon} size={28} /></span>
+                  <span className="card__thumb" style={{ background: c.tint, color: c.color }}>
+                    {p.photos?.length ? <img src={p.photos[0]} alt="" /> : <Icon d={c.icon} size={28} />}
+                    {p.source === 'reel' && <span className="card__reel" aria-label="From a reel">▶</span>}
+                  </span>
                   <span className="card__body">
-                    <span className="card__cat" style={{ color: c.color }}>{c.label}{p.mustSee ? ' · Must see' : ''}</span>
                     <span className="card__name">{p.name}</span>
+                    <span className="card__tags">
+                      <span className="tag" style={{ background: c.tint, color: c.color }}>{c.label}</span>
+                      {p.mustSee && <span className="tag tag--must">Must see</span>}
+                    </span>
                     <span className="card__src">{p.source === 'reel' ? 'From a reel' : p.source === 'sample' ? 'Sample place' : 'Added by search'}</span>
                   </span>
                 </button>
@@ -187,27 +206,8 @@ export default function App() {
         )}
         {!plan && visible.length === 0 && <div className="empty">No {filter === 'all' ? '' : categoryById(filter as CategoryId).label.toLowerCase() + ' '}places yet. Search above to add one.</div>}
 
-        {selected && !plan && (
-          <aside className="detail" aria-label={`${selected.name} details`}>
-            <button className="icon-btn detail__close" aria-label="Close" onClick={() => setSelectedId(undefined)}><Icon d="M6 6l12 12M18 6L6 18" /></button>
-            <div className="detail__cat" style={{ color: categoryById(selected.category).color }}>{categoryById(selected.category).label}</div>
-            <h2>{selected.name}</h2>
-            {selected.address && <p className="muted">{selected.address}</p>}
-            <label className="field">Category
-              <select value={selected.category} onChange={(e) => update(selected.id, { category: e.target.value as CategoryId })}>
-                {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-              </select>
-            </label>
-            <label className="check"><input type="checkbox" checked={!!selected.mustSee} onChange={(e) => update(selected.id, { mustSee: e.target.checked })} /> Must see</label>
-            <label className="field">Your note
-              <input value={selected.note ?? ''} onChange={(e) => update(selected.id, { note: e.target.value })} placeholder="e.g. go early, book ahead" />
-            </label>
-            {selected.reelUrl && <a href={selected.reelUrl} target="_blank" rel="noreferrer">Watch the reel</a>}
-            <div className="row">
-              <a className="btn btn--ghost" href={`https://www.google.com/maps/search/?api=1&query=${selected.lat},${selected.lng}`} target="_blank" rel="noreferrer">Directions</a>
-              <button className="btn btn--danger" onClick={() => remove(selected.id)}>Remove</button>
-            </div>
-          </aside>
+        {selected && !plan && !pending && (
+          <PlaceDetail key={selected.id} place={selected} onUpdate={(patch) => update(selected.id, patch)} onRemove={() => remove(selected.id)} onClose={() => setSelectedId(undefined)} />
         )}
 
         {panel === 'plan' && !plan && (
@@ -276,7 +276,7 @@ export default function App() {
           <ImportReel
             near={center}
             onClose={() => setPanel('none')}
-            onAdd={(r, url) => addPlace(r, 'reel', url)}
+            onAdd={(r, url, reel, photos) => { setPanel('none'); preview(r, { source: 'reel', reelUrl: url, reel, photos }); }}
           />
         )}
       </main>
@@ -320,7 +320,8 @@ function PlanForm({ count, onPlan, onCancel }: { count: number; onPlan: (o: Plan
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const isReelLink = (u: string) => /instagram\.com\/(?:[\w.]+\/)?(?:reels?|p|tv)\/[\w-]{5,}/i.test(u);
 
-function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string) => void }) {
+function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string, reel: { author?: string; caption?: string }, photos: string[]) => void }) {
+  const [frames, setFrames] = useState<string[]>([]);
   const [url, setUrl] = useState('');
   const [caption, setCaption] = useState('');
   const [author, setAuthor] = useState('');
@@ -353,7 +354,7 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
         if (!r.ok || !data.caption) throw new Error(data.error || 'Couldn’t read this reel automatically.');
-        setCaption(data.caption); setAuthor(data.author ?? ''); setStatus('read');
+        setCaption(data.caption); setAuthor(data.author ?? ''); setFrames(Array.isArray(data.images) ? data.images : []); setStatus('read');
         findPlaces(data.caption);
       } catch (e) {
         if (cancelled) return;
@@ -380,6 +381,7 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
         {status === 'read' && (
           <div className="caption-box">
             <div className="small"><strong>Caption{author ? ` by @${author}` : ''}</strong></div>
+            {frames.length > 0 && <div className="frames">{frames.map((f, i) => <img key={i} src={f} alt={`Reel image ${i + 1}`} />)}</div>}
             <p className="caption-text">{caption}</p>
           </div>
         )}
@@ -407,7 +409,7 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
                     <div key={i} className="found__match">
                       <span className="dot" style={{ background: categoryById(m.category).color }} />
                       <span className="result__text"><strong>{m.name}</strong><small>{m.address}</small></span>
-                      <button className="btn btn--small" disabled={added.has(key)} onClick={() => { onAdd(m, url); setAdded(new Set(added).add(key)); }}>{added.has(key) ? 'Added' : 'Add'}</button>
+                      <button className="btn btn--small" disabled={added.has(key)} onClick={() => { setAdded(new Set(added).add(key)); onAdd(m, url, { author: author || undefined, caption: caption || undefined }, frames); }}>Show on map</button>
                     </div>
                   );
                 })}

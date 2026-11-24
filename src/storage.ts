@@ -24,6 +24,7 @@ export function loadMaps(): TripMap[] {
   return [newMap('Lisbon (sample)', SAMPLE_PLACES)];
 }
 
-export function saveMaps(maps: TripMap[]) {
-  try { localStorage.setItem(KEY, JSON.stringify(maps)); } catch { /* ignore */ }
+/** Returns false when the browser refused to save (usually out of space). */
+export function saveMaps(maps: TripMap[]): boolean {
+  try { localStorage.setItem(KEY, JSON.stringify(maps)); return true; } catch { return false; }
 }

@@ -13,7 +13,14 @@ export interface Place {
   mustSee?: boolean;
   source: 'search' | 'reel' | 'sample';
   reelUrl?: string;
+  /** User's own photos, or frames/cover from the reel. Stored as small JPEG data URLs. */
+  photos?: string[];
+  reel?: { author?: string; caption?: string };
+  visited?: boolean;
 }
+
+/** A place the user is looking at on the map before confirming "Add to map". */
+export type PendingPlace = Omit<Place, 'id'>;
 
 export interface DayPlan {
   day: number;

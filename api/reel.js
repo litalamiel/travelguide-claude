@@ -21,6 +21,29 @@ export function parseShortcode(url) {
   return m ? m[1] : null;
 }
 
+const imgUrlsFrom = (html) => {
+  const urls = [];
+  for (const m of html.matchAll(/<img[^>]+class="[^"]*EmbeddedMediaImage[^"]*"[^>]*src="([^"]+)"/gi)) urls.push(m[1]);
+  for (const m of html.matchAll(/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/gi)) urls.push(m[1]);
+  return [...new Set(urls.map((u) => u.replace(/&amp;/g, '&')))];
+};
+
+// Instagram image links expire, so we copy the reel's images as small data URLs.
+async function toDataUrls(urls, limit = 4) {
+  const out = [];
+  for (const u of urls.slice(0, limit)) {
+    try {
+      const r = await fetch(u, { headers: { 'User-Agent': UA } });
+      const type = r.headers.get('content-type') || 'image/jpeg';
+      if (!r.ok || !type.startsWith('image/')) continue;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length > 1_500_000) continue;
+      out.push(`data:${type};base64,${buf.toString('base64')}`);
+    } catch { /* skip */ }
+  }
+  return out;
+}
+
 async function fromEmbed(code) {
   const r = await fetch(`https://www.instagram.com/p/${code}/embed/captioned/`, { headers: { 'User-Agent': UA, 'Accept-Language': 'en' } });
   if (!r.ok) return null;
@@ -29,7 +52,7 @@ async function fromEmbed(code) {
   if (!block) return null;
   const author = (block[1].match(/class="CaptionUsername"[^>]*>([\s\S]*?)<\/a>/i) || [])[1];
   const text = decode(block[1].replace(/<a[^>]*class="CaptionUsername"[^>]*>[\s\S]*?<\/a>/i, ''));
-  return text ? { caption: text, author: author ? decode(author) : undefined } : null;
+  return text ? { caption: text, author: author ? decode(author) : undefined, imageUrls: imgUrlsFrom(html) } : null;
 }
 
 async function fromPreview(code) {
@@ -41,7 +64,8 @@ async function fromPreview(code) {
   // Typical form: `123 likes, 4 comments - user on May 1, 2025: "caption…"`
   const d = decode(og);
   const m = d.match(/^[\s\S]*? - ([\w.]+) on [^:]+:\s*"?([\s\S]*?)"?\.?$/);
-  return m ? { caption: m[2], author: m[1] } : { caption: d };
+  const imageUrls = imgUrlsFrom(html);
+  return m ? { caption: m[2], author: m[1], imageUrls } : { caption: d, imageUrls };
 }
 
 export default async function handler(req, res) {
@@ -52,8 +76,9 @@ export default async function handler(req, res) {
   try {
     const out = (await fromEmbed(code)) || (await fromPreview(code));
     if (!out) return res.status(404).json({ error: 'Couldn’t read this reel’s caption. It may be private or removed.' });
+    const images = await toDataUrls(out.imageUrls || []);
     res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
-    return res.status(200).json({ shortcode: code, ...out });
+    return res.status(200).json({ shortcode: code, caption: out.caption, author: out.author, images });
   } catch (e) {
     return res.status(502).json({ error: 'Instagram didn’t respond. Try again in a moment.' });
   }

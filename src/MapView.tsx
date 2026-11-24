@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
-import type { DayPlan, Place } from './types';
+import type { DayPlan, PendingPlace, Place } from './types';
 import { categoryById } from './categories';
 
 // Free OpenStreetMap vector tiles from OpenFreeMap — no API key, live and zoomable.
@@ -16,9 +16,14 @@ interface Props {
   plan?: DayPlan[];
   activeDay?: number;
   flyTo?: { lat: number; lng: number; key: number };
+  preview?: PendingPlace;
+  onPreviewMove?: (lat: number, lng: number) => void;
 }
 
-export default function MapView({ places, selectedId, onSelect, onCenterChange, plan, activeDay, flyTo }: Props) {
+export default function MapView({ places, selectedId, onSelect, onCenterChange, plan, activeDay, flyTo, preview, onPreviewMove }: Props) {
+  const previewMarker = useRef<maplibregl.Marker>();
+  const moveRef = useRef(onPreviewMove);
+  moveRef.current = onPreviewMove;
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map>();
   const markers = useRef<maplibregl.Marker[]>([]);
@@ -68,7 +73,8 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
       const inner = stop
         ? `<span class="pin__num">${stop}</span>`
         : `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg>`;
-      btn.innerHTML = `<span class="pin__shape" style="background:${color}"></span><span class="pin__inner">${inner}</span>`;
+      btn.innerHTML = `<span class="pin__shape" style="background:${color}"></span><span class="pin__inner">${inner}</span>` +
+        (p.source === 'reel' ? (p.photos?.[0] ? `<span class="pin__badge" style="background-image:url('${p.photos[0]}')"></span>` : '<span class="pin__badge pin__badge--play">▶</span>') : '');
       btn.addEventListener('click', (e) => { e.stopPropagation(); onSelect(p.id); });
       return new maplibregl.Marker({ element: btn, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(m);
     });
@@ -104,8 +110,30 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
     m.fitBounds(b, { padding: 90, maxZoom: 15, duration: 600 });
   }, [plan, activeDay]);
 
+  // Preview pin (not saved yet). Draggable so the user can nudge it onto the right spot.
+  const previewKey = preview ? `${preview.name}|${preview.category}` : '';
   useEffect(() => {
-    if (flyTo && map.current) map.current.flyTo({ center: [flyTo.lng, flyTo.lat], zoom: Math.max(map.current.getZoom(), 14) });
+    const m = map.current;
+    previewMarker.current?.remove();
+    previewMarker.current = undefined;
+    if (!m || !preview) return;
+    const c = categoryById(preview.category);
+    const el = document.createElement('div');
+    el.className = 'pin pin--preview';
+    el.innerHTML = `<span class="pin__halo"></span><span class="pin__shape" style="background:${c.color}"></span><span class="pin__inner"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg></span><span class="pin__label">Preview · drag to adjust</span>`;
+    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', draggable: true }).setLngLat([preview.lng, preview.lat]).addTo(m);
+    mk.on('dragend', () => { const ll = mk.getLngLat(); moveRef.current?.(ll.lat, ll.lng); });
+    previewMarker.current = mk;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey, !!preview]);
+
+  useEffect(() => {
+    if (flyTo && map.current) {
+      const h = map.current.getContainer().clientHeight;
+      const phone = window.innerWidth <= 720;
+      // On phones the confirm sheet covers the lower part, so keep the pin in the top third.
+      map.current.flyTo({ center: [flyTo.lng, flyTo.lat], zoom: Math.max(map.current.getZoom(), 14), offset: [0, phone ? -h * 0.28 : 0] });
+    }
   }, [flyTo]);
 
   return <div ref={el} className="map" role="application" aria-label="Map of your places" />;
