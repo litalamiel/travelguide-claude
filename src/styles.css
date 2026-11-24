@@ -193,3 +193,37 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .detail { max-height: 75%; }
   .carousel { max-height: 240px; }
 }
+
+/* Saved, editable trips */
+.fabs { position: absolute; right: 16px; bottom: 168px; z-index: 3; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.fabs .fab { position: static; }
+.fab--light { background: #fff; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(15,23,42,.15); }
+.itin__title { flex: 1; min-width: 0; text-align: left; border: none; background: none; padding: 0; cursor: text; display: flex; flex-direction: column; }
+.itin__title h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.itin__title small { color: var(--muted); font-size: 12px; }
+.days { display: flex; gap: 6px; flex-wrap: wrap; }
+.day-tab--add { border-style: dashed; color: var(--accent); }
+.kinds { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.kind { height: 34px; padding: 0 10px; border-radius: 17px; border: 1px solid #cbd5e1; background: #fff; font-size: 13px; display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+.kind--on { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 700; }
+.itin__day .field { margin-bottom: 8px; }
+.stops--edit { padding-left: 20px; gap: 4px; }
+.stops--edit li { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; }
+.stops--edit { list-style: decimal; }
+.stop__name { text-align: left; border: none; background: none; padding: 4px 0; cursor: pointer; font-size: 14px; color: var(--ink); min-width: 0; }
+.stop__name small { display: block; font-size: 12px; font-weight: 600; }
+.stop__tools { display: flex; gap: 4px; align-items: center; }
+.mini { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #334155; }
+.mini:disabled { opacity: .35; cursor: default; }
+.mini--danger { color: var(--danger); }
+.mini-select { height: 32px; border-radius: 8px; border: 1px solid var(--line); background: #fff; font-size: 12px; padding: 0 4px; }
+.add-stop select { width: 100%; height: 40px; margin-top: 8px; border-radius: 10px; border: 1px dashed #94a3b8; background: #f8fafc; padding: 0 10px; font-size: 13px; color: var(--accent); font-weight: 600; }
+.night { display: flex; gap: 10px; align-items: center; margin-top: 10px; padding: 10px; border-radius: 12px; background: #f1f5f9; }
+.night__icon { width: 34px; height: 34px; border-radius: 17px; background: #0f172a; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.night__field { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: #334155; min-width: 0; }
+.night__field select { height: 36px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; font-size: 14px; padding: 0 8px; }
+.link-btn { align-self: flex-start; border: none; background: none; padding: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--accent); cursor: pointer; text-align: left; }
+.link-btn--danger { color: var(--danger); }
+.stops--edit { list-style: none; padding-left: 0; counter-reset: stop; }
+.stops--edit li { grid-template-columns: 24px minmax(0, 1fr) auto; }
+.stops--edit li::before { counter-increment: stop; content: counter(stop); width: 22px; height: 22px; border-radius: 11px; background: var(--soft); font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }

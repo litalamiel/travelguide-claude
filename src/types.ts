@@ -22,9 +22,32 @@ export interface Place {
 /** A place the user is looking at on the map before confirming "Add to map". */
 export type PendingPlace = Omit<Place, 'id'>;
 
+export type DayKind = 'regular' | 'transition' | 'flight';
+
+/** One day of a saved trip, stored as place ids so edits to places show up in the trip. */
+export interface TripDay {
+  placeIds: string[];
+  /** Where you sleep that night (a place in the Hotels category). */
+  stayId?: string;
+  kind: DayKind;
+  /** e.g. flight number and time, or "Lisbon → Porto". */
+  note?: string;
+}
+
+export interface SavedTrip {
+  id: string;
+  name: string;
+  createdAt: string;
+  maxDriveHours: number;
+  days: TripDay[];
+}
+
 export interface DayPlan {
   day: number;
   places: Place[];
+  stay?: Place;
+  kind: DayKind;
+  note?: string;
   /** Estimated driving minutes between stops (straight-line based). */
   driveMinutes: number;
   overLimit: boolean;
@@ -46,4 +69,5 @@ export interface TripMap {
   places: Place[];
   createdAt: string;
   listing?: Listing;
+  trips?: SavedTrip[];
 }

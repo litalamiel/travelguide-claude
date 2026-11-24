@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import MapView, { DAY_COLORS } from './MapView';
+import MapView from './MapView';
 import { CATEGORIES, categoryById } from './categories';
 import { candidatesFromCaption, searchPlaces, type SearchResult } from './geocode';
-import { fmtMinutes, planTrip, type PlanOptions } from './planner';
+import { daysFromTrip, planTrip, toTripDays, type PlanOptions } from './planner';
 import { loadMaps, newMap, saveMaps } from './storage';
-import type { CategoryId, DayPlan, Listing, PendingPlace, Place, TripMap } from './types';
+import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } from './types';
+import { Itinerary, TripsPanel } from './Trips';
 import { ConfirmPlace, PlaceDetail } from './Place';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
 
@@ -38,14 +39,20 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [panel, setPanel] = useState<'none' | 'import' | 'plan'>('none');
-  const [plan, setPlan] = useState<DayPlan[]>();
-  const [dropped, setDropped] = useState<Place[]>([]);
+  // Saved trips live on the map; the open one is turned into day plans from the current places.
+  const [tripId, setTripId] = useState<string>();
+  const [tripsOpen, setTripsOpen] = useState(false);
+  const trips = current.trips ?? [];
+  const trip = trips.find((t) => t.id === tripId);
+  const plan = useMemo(() => (trip ? daysFromTrip(trip, places) : undefined), [trip, places]);
+  const saveTrip = (t: SavedTrip) => setMaps((ms) => ms.map((m) => (m.id === current.id ? { ...m, trips: (m.trips ?? []).some((x) => x.id === t.id) ? (m.trips ?? []).map((x) => (x.id === t.id ? t : x)) : [...(m.trips ?? []), t] } : m)));
+  const deleteTrip = (id: string) => { setMaps((ms) => ms.map((m) => (m.id === current.id ? { ...m, trips: (m.trips ?? []).filter((x) => x.id !== id) } : m))); setTripId(undefined); setActiveDay(undefined); };
   const [activeDay, setActiveDay] = useState<number>();
 
   useEffect(() => setStorageWarning(!saveMaps(maps)), [maps]);
 
   const switchMap = (id: string) => {
-    setMapId(id); setPlan(undefined); setActiveDay(undefined); setSelectedId(undefined); setFilter('all'); setMapsOpen(false);
+    setMapId(id); setTripId(undefined); setActiveDay(undefined); setSelectedId(undefined); setFilter('all'); setMapsOpen(false);
     const m = maps.find((x) => x.id === id);
     if (m?.places.length) {
       const lat = m.places.reduce((s, p) => s + p.lat, 0) / m.places.length;
@@ -98,7 +105,7 @@ export default function App() {
   const [storageWarning, setStorageWarning] = useState(false);
   const preview = (r: SearchResult, extra: Partial<PendingPlace> = {}) => {
     setPending({ name: r.name, lat: r.lat, lng: r.lng, address: r.address, category: r.category, source: 'search', photos: [], ...extra });
-    setPlan(undefined); setSelectedId(undefined);
+    setTripId(undefined); setSelectedId(undefined);
     setQuery(''); setResults([]);
     setFlyTo({ lat: r.lat, lng: r.lng, key: Date.now() });
   };
@@ -112,9 +119,11 @@ export default function App() {
   };
 
   const update = (id: string, patch: Partial<Place>) => setPlaces((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  const remove = (id: string) => { setPlaces((ps) => ps.filter((p) => p.id !== id)); setSelectedId(undefined); setPlan(undefined); };
+  const remove = (id: string) => { setPlaces((ps) => ps.filter((p) => p.id !== id)); setSelectedId(undefined); setTripId(undefined); };
 
-  const mapPlaces = plan ? plan.flatMap((d) => d.places) : visible;
+  const mapPlaces = plan
+    ? [...plan.flatMap((d) => d.places), ...plan.map((d) => d.stay).filter((h, i, a): h is Place => !!h && a.indexOf(h) === i)]
+    : visible;
 
   return (
     <div className="app">
@@ -161,7 +170,7 @@ export default function App() {
             All <span className="cat__n">{counts.all}</span>
           </button>
           {CATEGORIES.map((c) => (
-            <button key={c.id} className={'cat' + (filter === c.id ? ' cat--on' : '')} onClick={() => { setFilter(c.id); setPlan(undefined); }} aria-pressed={filter === c.id}>
+            <button key={c.id} className={'cat' + (filter === c.id ? ' cat--on' : '')} onClick={() => { setFilter(c.id); setTripId(undefined); }} aria-pressed={filter === c.id}>
               <span className="cat__icon" style={{ background: filter === c.id ? c.color : c.tint, color: filter === c.id ? '#fff' : c.color }}><Icon d={c.icon} /></span>
               {c.label} <span className="cat__n">{counts[c.id] ?? 0}</span>
             </button>
@@ -176,9 +185,12 @@ export default function App() {
         {pending && <ConfirmPlace pending={pending} onChange={setPending} onCancel={() => setPending(undefined)} onAdd={confirmPending} />}
 
         {!plan && !pending && (
-          <button className="fab" onClick={() => setPanel('plan')} disabled={!places.length}>
-            Plan trip from {places.length} places
-          </button>
+          <div className="fabs">
+            {trips.length > 0 && <button className="fab fab--light" onClick={() => setTripsOpen(true)}>My trips ({trips.length})</button>}
+            <button className="fab" onClick={() => setPanel('plan')} disabled={!places.length}>
+              Plan trip from {places.length} places
+            </button>
+          </div>
         )}
 
         {!plan && !pending && visible.length > 0 && (
@@ -216,42 +228,34 @@ export default function App() {
             onCancel={() => setPanel('none')}
             onPlan={(o) => {
               const r = planTrip(places, o);
-              setPlan(r.days); setDropped(r.dropped); setActiveDay(undefined); setPanel('none'); setSelectedId(undefined);
+              const t: SavedTrip = {
+                id: uid(), createdAt: new Date().toISOString(), maxDriveHours: o.maxDriveHours,
+                name: `Trip ${trips.length + 1} · ${o.nights} ${o.nights === 1 ? 'night' : 'nights'}`,
+                days: toTripDays(r.days, places, o.nights + 1),
+              };
+              saveTrip(t); setTripId(t.id); setActiveDay(undefined); setPanel('none'); setSelectedId(undefined);
             }}
           />
         )}
 
-        {plan && (
-          <aside className="itin" aria-label="Itinerary">
-            <div className="itin__head">
-              <h2>Your trip · {plan.length} days</h2>
-              <button className="btn btn--ghost" onClick={() => { setPlan(undefined); setActiveDay(undefined); }}>Back to map</button>
-            </div>
-            <p className="muted small">Drive times are rough estimates from straight-line distance. Live routing comes with Google Maps.</p>
-            <div className="days">
-              <button className={'day-tab' + (!activeDay ? ' day-tab--on' : '')} onClick={() => setActiveDay(undefined)}>All</button>
-              {plan.map((d, i) => (
-                <button key={d.day} className={'day-tab' + (activeDay === d.day ? ' day-tab--on' : '')} style={activeDay === d.day ? { background: DAY_COLORS[i % DAY_COLORS.length] } : undefined} onClick={() => setActiveDay(d.day)}>Day {d.day}</button>
-              ))}
-            </div>
-            <ol className="itin__list">
-              {plan.filter((d) => !activeDay || d.day === activeDay).map((d) => (
-                <li key={d.day} className="itin__day">
-                  <div className="itin__dayhead">
-                    <span className="swatch" style={{ background: DAY_COLORS[(d.day - 1) % DAY_COLORS.length] }} />
-                    <strong>Day {d.day}</strong>
-                    <span className={d.overLimit ? 'warn' : 'muted'}>{fmtMinutes(d.driveMinutes)}{d.overLimit ? ' · over your limit' : ''}</span>
-                  </div>
-                  <ol className="stops">
-                    {d.places.map((p) => (
-                      <li key={p.id}><span>{p.name}</span><small style={{ color: categoryById(p.category).color }}>{categoryById(p.category).label}{p.mustSee ? ' · Must see' : ''}</small></li>
-                    ))}
-                  </ol>
-                </li>
-              ))}
-            </ol>
-            {dropped.length > 0 && <p className="muted small">Didn't fit: {dropped.map((p) => p.name).join(', ')}. Add a night or pick a faster pace.</p>}
-          </aside>
+        {plan && trip && (
+          <Itinerary
+            key={trip.id}
+            trip={trip} days={plan} places={places}
+            activeDay={activeDay} onActiveDay={setActiveDay}
+            onChange={saveTrip}
+            onClose={() => { setTripId(undefined); setActiveDay(undefined); }}
+            onDelete={() => deleteTrip(trip.id)}
+            onSelectPlace={select}
+          />
+        )}
+        {tripsOpen && (
+          <TripsPanel
+            trips={trips}
+            onOpen={(id) => { setTripId(id); setActiveDay(undefined); setTripsOpen(false); setSelectedId(undefined); }}
+            onNew={() => { setTripsOpen(false); setPanel('plan'); }}
+            onClose={() => setTripsOpen(false)}
+          />
         )}
 
         {mapsOpen && (

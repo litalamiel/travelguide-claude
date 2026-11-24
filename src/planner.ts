@@ -1,4 +1,4 @@
-import type { DayPlan, Place } from './types';
+import type { DayPlan, Place, SavedTrip, TripDay } from './types';
 
 const R = 6371;
 export function km(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -103,6 +103,7 @@ export function planTrip(all: Place[], opts: PlanOptions): { days: DayPlan[]; dr
     return {
       day: i + 1,
       places: ordered,
+      kind: 'regular' as const,
       driveMinutes: mins,
       overLimit: mins > opts.maxDriveHours * 60,
       area: ordered[0].name,
@@ -112,3 +113,47 @@ export function planTrip(all: Place[], opts: PlanOptions): { days: DayPlan[]; dr
 }
 
 export const fmtMinutes = (m: number) => (m === 0 ? 'No driving' : m < 60 ? `${m} min drive` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} drive`);
+
+const centroidOf = (g: { lat: number; lng: number }[]) => ({ lat: g.reduce((s, p) => s + p.lat, 0) / g.length, lng: g.reduce((s, p) => s + p.lng, 0) / g.length });
+
+/** Turn a fresh plan into saved days, picking the nearest saved hotel (within 60 km) for each night. */
+export function toTripDays(days: DayPlan[], all: Place[], totalDays = days.length): TripDay[] {
+  const hotels = all.filter((p) => p.category === 'stay');
+  const out: TripDay[] = days.map((d, i) => {
+    let stayId: string | undefined;
+    const isLast = i === totalDays - 1;
+    if (hotels.length && d.places.length && !isLast) {
+      const c = centroidOf(d.places);
+      const best = hotels.reduce((a, b) => (km(c, a) <= km(c, b) ? a : b));
+      if (km(c, best) < 60) stayId = best.id;
+    }
+    return { placeIds: d.places.map((p) => p.id), stayId, kind: 'regular' as const };
+  });
+  // Keep one day per night even when the places fit in fewer days.
+  while (out.length < totalDays) out.push({ placeIds: [], kind: 'regular', stayId: out.length < totalDays - 1 ? out[out.length - 1]?.stayId : undefined });
+  return out;
+}
+
+/** Rebuild day plans (with drive estimates) from a saved trip and the map's current places. */
+export function daysFromTrip(trip: SavedTrip, all: Place[]): DayPlan[] {
+  const byId = new Map(all.map((p) => [p.id, p]));
+  let prevNight: Place | undefined;
+  return trip.days.map((d, i) => {
+    const places = d.placeIds.map((id) => byId.get(id)).filter((p): p is Place => !!p);
+    const stay = d.stayId ? byId.get(d.stayId) : undefined;
+    const pts = [prevNight, ...places, stay].filter((p): p is Place => !!p);
+    let mins = 0;
+    for (let j = 1; j < pts.length; j++) mins += driveMin(km(pts[j - 1], pts[j]));
+    prevNight = stay ?? places[places.length - 1] ?? prevNight;
+    return {
+      day: i + 1,
+      places,
+      stay,
+      kind: d.kind,
+      note: d.note,
+      driveMinutes: mins,
+      overLimit: d.kind === 'regular' && mins > trip.maxDriveHours * 60,
+      area: places[0]?.name ?? stay?.name ?? '',
+    };
+  });
+}

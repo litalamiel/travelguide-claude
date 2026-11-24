@@ -90,10 +90,10 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
       src.setData({
         type: 'FeatureCollection',
         features: (plan ?? []).map((d, i) => ({
-          type: 'Feature',
+          type: 'Feature' as const,
           properties: { color: DAY_COLORS[i % DAY_COLORS.length], width: activeDay === d.day ? 5 : 3, opacity: !activeDay || activeDay === d.day ? 0.9 : 0.25 },
-          geometry: { type: 'LineString', coordinates: d.places.map((p) => [p.lng, p.lat]) },
-        })),
+          geometry: { type: 'LineString' as const, coordinates: [...d.places, ...(d.stay ? [d.stay] : [])].map((p) => [p.lng, p.lat]) },
+        })).filter((f) => f.geometry.coordinates.length > 1),
       });
     };
     if (loaded.current) draw(); else m.once('routes:refresh', draw);
@@ -103,7 +103,7 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
   useEffect(() => {
     const m = map.current;
     if (!m || !plan?.length) return;
-    const pts = (activeDay ? plan.filter((d) => d.day === activeDay) : plan).flatMap((d) => d.places);
+    const pts = (activeDay ? plan.filter((d) => d.day === activeDay) : plan).flatMap((d) => [...d.places, ...(d.stay ? [d.stay] : [])]);
     if (!pts.length) return;
     const b = new maplibregl.LngLatBounds();
     pts.forEach((p) => b.extend([p.lng, p.lat]));

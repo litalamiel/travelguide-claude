@@ -15,4 +15,6 @@ export const SAMPLE_PLACES: Place[] = [
   { id: 's11', name: 'Cabo da Roca', lat: 38.7804, lng: -9.4989, category: 'nature', source: 'sample' },
   { id: 's12', name: 'Praia da Comporta', lat: 38.3797, lng: -8.7966, category: 'beaches', source: 'sample' },
   { id: 's13', name: 'Roman Temple of Évora', lat: 38.5728, lng: -7.9073, category: 'sights', source: 'sample' },
+  { id: 's14', name: 'Memmo Alfama', lat: 38.7111, lng: -9.1300, category: 'stay', address: 'Travessa das Merceeiras 27, Lisbon', source: 'sample' },
+  { id: 's15', name: 'Tivoli Palácio de Seteais', lat: 38.7955, lng: -9.3958, category: 'stay', address: 'Rua Barbosa du Bocage 8, Sintra', source: 'sample' },
 ];
