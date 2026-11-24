@@ -36,7 +36,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .stage { position: relative; flex: 1; min-height: 0; }
 .map { position: absolute; inset: 0; }
-.pin { position: relative; width: 36px; height: 44px; border: none; background: none; padding: 0; cursor: pointer; }
+.pin { width: 36px; height: 44px; border: none; background: none; padding: 0; cursor: pointer; }
 .pin__shape { position: absolute; left: 1px; top: 1px; width: 34px; height: 34px; border-radius: 17px 17px 17px 4px; transform: rotate(-45deg); border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); box-sizing: border-box; }
 .pin__inner { position: absolute; left: 1px; top: 1px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; }
 .pin--selected .pin__shape { box-shadow: 0 0 0 5px rgba(15,118,110,.45), 0 2px 8px rgba(0,0,0,.35); }
