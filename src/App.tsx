@@ -3,8 +3,9 @@ import MapView, { DAY_COLORS } from './MapView';
 import { CATEGORIES, categoryById } from './categories';
 import { candidatesFromCaption, searchPlaces, type SearchResult } from './geocode';
 import { fmtMinutes, planTrip, type PlanOptions } from './planner';
-import { loadPlaces, savePlaces } from './storage';
-import type { CategoryId, DayPlan, Place } from './types';
+import { loadMaps, newMap, saveMaps } from './storage';
+import type { CategoryId, DayPlan, Listing, Place, TripMap } from './types';
+import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -17,7 +18,16 @@ function Icon({ d, size = 20 }: { d: string; size?: number }) {
 }
 
 export default function App() {
-  const [places, setPlaces] = useState<Place[]>(loadPlaces);
+  const [maps, setMaps] = useState<TripMap[]>(loadMaps);
+  const [mapId, setMapId] = useState<string>(() => maps[0].id);
+  const current = maps.find((m) => m.id === mapId) ?? maps[0];
+  const places = current.places;
+  const setPlaces = useCallback((fn: (ps: Place[]) => Place[]) => {
+    setMaps((ms) => ms.map((m) => (m.id === current.id ? { ...m, places: fn(m.places) } : m)));
+  }, [current.id]);
+  const [mapsOpen, setMapsOpen] = useState(false);
+  const [sellOpen, setSellOpen] = useState(false);
+  const [buyerOpen, setBuyerOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | CategoryId>('all');
   const [selectedId, setSelectedId] = useState<string>();
   const [center, setCenter] = useState({ lat: 38.71, lng: -9.16 });
@@ -31,7 +41,26 @@ export default function App() {
   const [dropped, setDropped] = useState<Place[]>([]);
   const [activeDay, setActiveDay] = useState<number>();
 
-  useEffect(() => savePlaces(places), [places]);
+  useEffect(() => saveMaps(maps), [maps]);
+
+  const switchMap = (id: string) => {
+    setMapId(id); setPlan(undefined); setActiveDay(undefined); setSelectedId(undefined); setFilter('all'); setMapsOpen(false);
+    const m = maps.find((x) => x.id === id);
+    if (m?.places.length) {
+      const lat = m.places.reduce((s, p) => s + p.lat, 0) / m.places.length;
+      const lng = m.places.reduce((s, p) => s + p.lng, 0) / m.places.length;
+      setFlyTo({ lat, lng, key: Date.now() });
+    }
+  };
+  const createMap = (name: string) => { const m = newMap(name); setMaps((ms) => [...ms, m]); switchMap(m.id); };
+  const renameMap = (id: string, name: string) => setMaps((ms) => ms.map((m) => (m.id === id ? { ...m, name } : m)));
+  const deleteMap = (id: string) => {
+    const rest = maps.filter((m) => m.id !== id);
+    const next = rest.length ? rest : [newMap('My map')];
+    setMaps(next);
+    if (id === current.id) switchMap(next[0].id);
+  };
+  const saveListing = (l: Listing) => setMaps((ms) => ms.map((m) => (m.id === current.id ? { ...m, listing: l } : m)));
 
   // Debounced place search
   useEffect(() => {
@@ -82,6 +111,9 @@ export default function App() {
       <header className="top">
         <div className="top__row">
           <div className="brand">Travel Maps</div>
+          <button className="btn map-switch" onClick={() => setMapsOpen(true)} aria-haspopup="dialog">
+            <span className="map-switch__name">{current.name}</span> <span aria-hidden="true">▾</span>
+          </button>
           <div className="search">
             <label htmlFor="q" className="sr-only">Search a place</label>
             <input
@@ -221,6 +253,24 @@ export default function App() {
             {dropped.length > 0 && <p className="muted small">Didn't fit: {dropped.map((p) => p.name).join(', ')}. Add a night or pick a faster pace.</p>}
           </aside>
         )}
+
+        {mapsOpen && (
+          <MapsPanel
+            maps={maps} currentId={current.id}
+            onSwitch={switchMap} onCreate={createMap} onRename={renameMap} onDelete={deleteMap}
+            onSell={() => { setMapsOpen(false); setSellOpen(true); }}
+            onClose={() => setMapsOpen(false)}
+          />
+        )}
+        {sellOpen && (
+          <SellPanel
+            map={current}
+            onSave={(l) => { saveListing(l); }}
+            onPreview={() => { setSellOpen(false); setBuyerOpen(true); }}
+            onClose={() => setSellOpen(false)}
+          />
+        )}
+        {buyerOpen && <BuyerPreview map={current} onClose={() => setBuyerOpen(false)} onEdit={() => { setBuyerOpen(false); setSellOpen(true); }} />}
 
         {panel === 'import' && (
           <ImportReel

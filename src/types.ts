@@ -23,3 +23,20 @@ export interface DayPlan {
   overLimit: boolean;
   area: string;
 }
+
+export interface Listing {
+  published: boolean;
+  creatorName: string;
+  description: string;
+  price: number;
+  currency: 'USD' | 'EUR' | 'GBP' | 'ILS';
+  previewCount: number;
+}
+
+export interface TripMap {
+  id: string;
+  name: string;
+  places: Place[];
+  createdAt: string;
+  listing?: Listing;
+}

@@ -115,3 +115,26 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .caption-box { background: var(--soft); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 .caption-text { margin: 0; font-size: 14px; white-space: pre-line; max-height: 160px; overflow: auto; }
+.map-switch { max-width: 200px; flex-shrink: 1; min-width: 0; }
+.map-switch__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.input { flex: 3; height: 44px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 0 12px; font-size: 14px; min-width: 0; }
+.maplist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.maplist__item { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; flex-wrap: wrap; }
+.maplist__item--on { border-color: var(--accent); background: #f0fdfa; }
+.maplist__open { flex: 1; min-width: 0; text-align: left; border: none; background: none; padding: 8px 4px; cursor: pointer; display: flex; flex-direction: column; }
+.maplist__open small { color: var(--muted); }
+.maplist__actions { display: flex; gap: 6px; }
+.maplist__edit { flex: 1; display: flex; gap: 6px; }
+.maplist__edit input { flex: 1; height: 36px; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0 10px; min-width: 0; }
+.sell-cta { display: flex; gap: 12px; align-items: center; justify-content: space-between; background: #fff7ed; border-radius: 12px; padding: 12px; flex-wrap: wrap; }
+.buyer__hero { background: #134e4a; color: #fff; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 4px; }
+.buyer__hero h2 { color: #fff; }
+.buyer__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.buyer__list li { display: flex; gap: 10px; align-items: center; }
+.buyer__list li > span:last-child { display: flex; flex-direction: column; }
+.buyer__list small { color: var(--muted); }
+.buyer__locked { color: var(--muted); background: var(--soft); border-radius: 10px; padding: 12px; }
+.btn--block { width: 100%; }
+.btn:disabled { cursor: not-allowed; opacity: .6; }
+.pill-tag { font-size: 12px; font-weight: 700; background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 999px; }
+@media (max-width: 720px) { .map-switch { max-width: 130px; } }
