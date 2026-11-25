@@ -49,12 +49,14 @@ export default function App() {
   const [hlOpen, setHlOpen] = useState(false);
   const [fitKey, setFitKey] = useState(0);
   const fitAll = () => setTimeout(() => setFitKey(Date.now()), 50);
+  // Open on the area with the current map's pins.
+  useEffect(() => { fitAll(); }, []);
   // Several categories can be on at once; none selected means show everything.
   const [cats, setCats] = useState<CategoryId[]>([]);
   const toggleCat = (id: CategoryId) => setCats((cs) => (cs.includes(id) ? cs.filter((c) => c !== id) : [...cs, id]));
   const [selectedId, setSelectedId] = useState<string>();
   const [center, setCenter] = useState({ lat: 38.71, lng: -9.16 });
-  const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; key: number }>();
+  const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; key: number; keepZoom?: boolean }>();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -75,11 +77,8 @@ export default function App() {
   const switchMap = (id: string) => {
     setMapId(id); setTripId(undefined); setActiveDay(undefined); setSelectedId(undefined); setCats([]); setMapsOpen(false);
     const m = maps.find((x) => x.id === id);
-    if (m?.places.length) {
-      const lat = m.places.reduce((s, p) => s + p.lat, 0) / m.places.length;
-      const lng = m.places.reduce((s, p) => s + p.lng, 0) / m.places.length;
-      setFlyTo({ lat, lng, key: Date.now() });
-    }
+    // Show the area with this map's pins.
+    if (m?.places.length) fitAll();
   };
   const createMap = (name: string) => { const m = { ...newMap(name), ...(creator ? { creator: true } : {}) }; setMaps((ms) => [...ms, m]); switchMap(m.id); };
   const setMode = (md: AccountMode) => {
@@ -138,7 +137,8 @@ export default function App() {
   const select = useCallback((id: string) => {
     setSelectedId(id);
     const p = places.find((x) => x.id === id);
-    if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() });
+    // Keep the zoom so the other pins stay in view; only pan if the pin would be hidden.
+    if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now(), keepZoom: true });
     requestAnimationFrame(() => cardsRef.current?.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
   }, [places]);
 

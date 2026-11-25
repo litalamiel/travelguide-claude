@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { CategoryId, DayPlan, PendingPlace, Place } from './types';
 import { KIDS, STAR, categoryById } from './categories';
+import { km } from './planner';
 
 // Free OpenStreetMap vector tiles from OpenFreeMap — no API key, live and zoomable.
 // To switch to Google Maps later, replace this component (see README).
@@ -15,7 +16,7 @@ interface Props {
   onCenterChange: (c: { lat: number; lng: number }) => void;
   plan?: DayPlan[];
   activeDay?: number;
-  flyTo?: { lat: number; lng: number; key: number };
+  flyTo?: { lat: number; lng: number; key: number; keepZoom?: boolean };
   preview?: PendingPlace;
   onPreviewMove?: (lat: number, lng: number) => void;
   /** Places found while importing many reels: solid = clear match, dashed = needs a pick, faded = not kept. */
@@ -30,6 +31,17 @@ interface Props {
   creatorBadge?: { avatar?: string; letter: string };
   /** Change to fit every place in view (e.g. when the buyer's preview opens). */
   fitKey?: number;
+}
+
+/** The pins worth framing: drops far-away outliers (e.g. one pin in another country) when most pins are close together. */
+function mainCluster<T extends { lat: number; lng: number }>(pts: T[]): T[] {
+  if (pts.length < 4) return pts;
+  const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const c = { lat: med(pts.map((p) => p.lat)), lng: med(pts.map((p) => p.lng)) };
+  const d = pts.map((p) => km(c, p));
+  const limit = Math.max(med(d) * 4, 30);
+  const kept = pts.filter((_, i) => d[i] <= limit);
+  return kept.length >= pts.length * 0.75 ? kept : pts;
 }
 
 export default function MapView({ places, selectedId, onSelect, onCenterChange, plan, activeDay, flyTo, preview, onPreviewMove, bulk, bulkFocus, onBulkSelect, lockMode, freeSet, onLocked, creatorBadge, fitKey }: Props) {
@@ -70,7 +82,12 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
     });
     map.current = m;
     // The places list beside the map can appear or hide, so follow the container's size, not just the window's.
-    const ro = new ResizeObserver(() => m.resize());
+    // Only on a real size change: resizing also stops a running camera animation (like fitting the pins).
+    let size = '';
+    const ro = new ResizeObserver(() => {
+      const c = m.getContainer(); const now = `${c.clientWidth}x${c.clientHeight}`;
+      if (now !== size) { const first = !size; size = now; if (!first) m.resize(); }
+    });
     if (el.current) ro.observe(el.current);
     return () => { ro.disconnect(); m.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,9 +135,9 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
     const m = map.current;
     if (!m || !fitKey || !places.length) return;
     const b = new maplibregl.LngLatBounds();
-    places.forEach((p) => b.extend([p.lng, p.lat]));
+    mainCluster(places).forEach((p) => b.extend([p.lng, p.lat]));
     const phone = window.innerWidth <= 720;
-    m.fitBounds(b, { padding: phone ? { top: 90, bottom: Math.round(window.innerHeight * 0.45), left: 40, right: 40 } : { top: 90, bottom: 60, left: 70, right: 80 }, maxZoom: 14, duration: 500 });
+    m.fitBounds(b, { padding: phone ? { top: 90, bottom: Math.round(window.innerHeight * 0.45), left: 40, right: 40 } : { top: 90, bottom: 60, left: 70, right: 80 }, maxZoom: 14, duration: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitKey]);
 
@@ -203,6 +220,19 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
     if (flyTo && map.current) {
       const h = map.current.getContainer().clientHeight;
       const phone = window.innerWidth <= 720;
+      if (flyTo.keepZoom) {
+        // Clicking a pin: don't zoom. Pan only when the pin is off screen or under the place card.
+        const m = map.current;
+        const w = m.getContainer().clientWidth;
+        const pt = m.project([flyTo.lng, flyTo.lat]);
+        const left = document.querySelector('.itin') && !phone ? 420 : 40;
+        const right = phone ? w - 40 : w - 420;
+        const bottom = phone ? h * 0.3 : h - 40;
+        if (pt.x < left || pt.x > right || pt.y < 40 || pt.y > bottom) {
+          m.easeTo({ center: [flyTo.lng, flyTo.lat], offset: [phone ? 0 : (left - (w - right)) / 2, phone ? -h * 0.32 : 0], duration: 500 });
+        }
+        return;
+      }
       // On phones the confirm sheet covers the lower part, so keep the pin in the top third.
       map.current.flyTo({ center: [flyTo.lng, flyTo.lat], zoom: Math.max(map.current.getZoom(), 14), offset: [0, phone ? -h * 0.28 : 0] });
     }

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { categoryById } from './categories';
 import { DAY_COLORS } from './MapView';
 import { buildTimeline, type Row } from './timeline';
+import { useSummary } from './summary';
 import type { DayKind, DayPlan, Place, SavedTrip, TripDay } from './types';
 
 const P = {
@@ -179,6 +180,38 @@ export function Itinerary({ trip, days, places, activeDay, onActiveDay, onChange
   );
 }
 
+/** One stop in the timeline (slot design A): category pill, name, short summary, and the traveler's own note. */
+function Slot({ r, editing, note, onOpen, onNote, onDragStart, tools }: {
+  r: Row & { kind: 'stop' }; editing: boolean; note: string;
+  onOpen: () => void; onNote: (v: string) => void; onDragStart: (e: React.PointerEvent) => void; tools: React.ReactNode;
+}) {
+  const p = r.place; const c = categoryById(p.category);
+  const summary = useSummary(p);
+  const dur = r.minutes < 60 ? `${r.minutes} min` : `${Math.round(r.minutes / 30) / 2} h`;
+  return (
+    <div className={'slotcard' + (r.meal ? ' slotcard--food' : '') + (editing ? ' slotcard--edit' : '')} onPointerDown={onDragStart}>
+      {editing && <span className="slotcard__grip" aria-hidden="true">⋮⋮</span>}
+      <button className="slotcard__main" onClick={onOpen} aria-label={`${p.name}, open its card`}>
+        <span className="slotcard__pill" style={{ background: c.color }}><Svg d={c.icon} size={12} />{r.meal ? `${r.meal} · ` : ''}{c.label} · {dur}</span>
+        <strong className="slotcard__name">{p.name}</strong>
+        {(p.mustSee || p.ifTime || p.kids) && <span className="slotcard__tags">
+          {p.mustSee && <span className="tag tag--must">★ Must do</span>}
+          {p.ifTime && <span className="tag tag--time">If you have time</span>}
+          {p.kids && <span className="tag tag--kids">KIDS</span>}
+        </span>}
+        {summary && <span className="slotcard__sum">{summary}</span>}
+      </button>
+      {!editing && note && <p className="slotcard__note">📝 {note}</p>}
+      {editing && (
+        <label className="slotcard__noteedit"><span className="sr-only">Your note for {p.name}</span>
+          <textarea rows={2} value={note} placeholder="Add your note for this stop…" onChange={(e) => onNote(e.target.value)} />
+        </label>
+      )}
+      {tools}
+    </div>
+  );
+}
+
 function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, editTime, setEditTime, setDay, move, moveToDay, removeStop, addStop, setTime, deleteDay, onSelectPlace }: {
   d: DayPlan; raw: TripDay; i: number; last: boolean; prevStay?: Place; title: string;
   days: DayPlan[]; unplanned: Place[]; hotels: Place[];
@@ -194,6 +227,44 @@ function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, ed
 }) {
   const [editing, setEditing] = useState(false);
   const kd = kindOf(raw.kind);
+  // Drag to reorder (Edit day): the slot follows the pointer; dropping it between other stops moves it there.
+  const [drag, setDrag] = useState<{ id: string; dy: number }>();
+  // Times before the last drop, so changed times can be highlighted for a moment.
+  const [flash, setFlash] = useState<Record<string, string>>();
+  const flashTimer = useRef<number>();
+  // True right after a real drag, so the click that ends it doesn't open the place card.
+  const dragged = useRef(false);
+  const startDrag = (e: React.PointerEvent, id: string, from: number) => {
+    if (!editing || e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.stop__tools, select, textarea, input, a')) return;
+    const row = target.closest('[data-stop]') as HTMLElement | null;
+    const root = target.closest('.dayview') as HTMLElement | null;
+    if (!row || !root) return;
+    const y0 = e.clientY;
+    const before = Object.fromEntries(rows.filter((x): x is Row & { kind: 'stop' } => x.kind === 'stop').map((x) => [x.place.id, x.time]));
+    dragged.current = false;
+    const onMove = (ev: PointerEvent) => { if (Math.abs(ev.clientY - y0) > 4) dragged.current = true; setDrag({ id, dy: ev.clientY - y0 }); };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      setDrag(undefined);
+      // Let the click that may follow this release see the flag, then clear it.
+      setTimeout(() => { dragged.current = false; }, 0);
+      const others = Array.from(root.querySelectorAll<HTMLElement>('[data-stop]')).filter((el) => el !== row);
+      const y = ev.clientY;
+      let to = others.filter((el) => { const b = el.getBoundingClientRect(); return b.top + b.height / 2 < y; }).length;
+      to = Math.max(0, Math.min(to, d.places.length - 1));
+      if (to !== from) {
+        move(i, from, to);
+        setFlash(before);
+        clearTimeout(flashTimer.current);
+        flashTimer.current = window.setTimeout(() => setFlash(undefined), 4000);
+      }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
   const rows = buildTimeline(d, raw, prevStay, i, last);
   const blocks = group(rows);
   const stops = rows.filter((r) => r.kind === 'stop');
@@ -254,27 +325,23 @@ function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, ed
                   return <li key={ri} className="tl__leg"><span /><span className="tl__dash" /><span><Svg d={r.mode === 'walk' ? P.walk : P.car} size={14} /> {r.min} min {r.mode === 'walk' ? 'walk' : 'drive'}</span></li>;
                 }
                 if (r.kind === 'stop') {
-                  const p = r.place; const c = categoryById(p.category);
-                  const food = !!r.meal;
+                  const p = r.place;
+                  const moved = flash && flash[p.id] && flash[p.id] !== r.time;
                   return (
-                    <li key={ri} className="tl__row">
+                    <li key={p.id} className={'tl__row tl__row--stop' + (drag?.id === p.id ? ' tl__row--drag' : '')} data-stop={r.index}
+                      style={drag?.id === p.id ? { transform: `translateY(${drag.dy}px)` } : undefined}>
                       {editTime === p.id ? (
                         <input className="tl__timeinput" type="time" aria-label={`Time for ${p.name}`} defaultValue={r.time} autoFocus
                           onBlur={(e) => { setTime(i, p.id, e.target.value); setEditTime(undefined); }}
                           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
                       ) : (
-                        <button className={'tl__time' + (r.fixed ? ' tl__time--fixed' : '')} onClick={() => (editing ? setEditTime(p.id) : onSelectPlace(p.id))} aria-label={editing ? `${r.time}, change time for ${p.name}` : `${r.time}, show ${p.name} on the map`}>{r.time}</button>
+                        <button className={'tl__time' + (r.fixed ? ' tl__time--fixed' : '') + (moved ? ' tl__time--moved' : '')} onClick={() => (editing ? setEditTime(p.id) : onSelectPlace(p.id))} aria-label={editing ? `${r.time}, change time for ${p.name}` : `${r.time}, show ${p.name} on the map`}>{r.time}</button>
                       )}
-                      <span className="tl__badge" style={{ background: c.tint, color: c.color }}><Svg d={c.icon} /></span>
-                      <div className={'tl__card' + (food ? ' tl__card--food' : '')}>
-                        <button className="tl__name" onClick={() => onSelectPlace(p.id)}>
-                          <strong>{p.name}</strong>
-                          {p.mustSee && <span className="tag tag--must">★ Must do</span>}
-                          {p.ifTime && <span className="tag tag--time">If you have time</span>}
-                          {p.kids && <span className="tag tag--kids">Kids</span>}
-                          <small style={food ? { color: '#b91c1c', fontWeight: 700 } : undefined}>{r.meal ? `${r.meal} · ` : ''}{c.label} · {r.minutes < 60 ? `${r.minutes} min` : `${Math.round(r.minutes / 30) / 2} h`}</small>
-                        </button>
-                        {editing && <span className="stop__tools">
+                      <Slot r={r} editing={editing} note={raw.notes?.[p.id] ?? ''}
+                        onOpen={() => { if (dragged.current) { dragged.current = false; return; } onSelectPlace(p.id); }}
+                        onNote={(v) => setDay(i, { notes: { ...(raw.notes ?? {}), [p.id]: v } })}
+                        onDragStart={(e) => startDrag(e, p.id, r.index)}
+                        tools={editing && <span className="stop__tools">
                           <button className="mini" aria-label={`Move ${p.name} earlier`} disabled={r.index === 0} onClick={() => move(i, r.index, r.index - 1)}><Svg d={P.up} size={16} /></button>
                           <button className="mini" aria-label={`Move ${p.name} later`} disabled={r.index === d.places.length - 1} onClick={() => move(i, r.index, r.index + 1)}><Svg d={P.down} size={16} /></button>
                           {days.length > 1 && (
@@ -284,8 +351,7 @@ function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, ed
                             </select>
                           )}
                           <button className="mini mini--danger" aria-label={`Remove ${p.name} from this day`} onClick={() => removeStop(i, p.id)}><Svg d={P.x} size={16} /></button>
-                        </span>}
-                      </div>
+                        </span>} />
                     </li>
                   );
                 }

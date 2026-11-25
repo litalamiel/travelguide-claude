@@ -657,3 +657,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .buyerbar, .stage--list .buyerbar { left: 56px; right: 8px; top: 8px; padding-left: 12px; transform: none; font-size: 12px; white-space: normal; }
   .locked { left: 8px; right: 8px; width: auto; bottom: 8px; z-index: 9; }
 }
+
+/* Itinerary slot (design A) and Edit day drag (design C) */
+.slotcard { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.slotcard--food { border-color: #fecaca; }
+.slotcard--edit { cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; padding-left: 22px; }
+.slotcard__grip { position: absolute; left: 6px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; letter-spacing: -2px; user-select: none; }
+.slotcard__main { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; border: none; background: none; padding: 0; text-align: left; cursor: pointer; color: var(--ink); min-width: 0; }
+.slotcard--edit .slotcard__main { cursor: grab; }
+.slotcard__pill { display: inline-flex; align-items: center; gap: 5px; color: #fff; border-radius: 999px; padding: 2px 9px 2px 6px; font-size: 11px; font-weight: 700; }
+.slotcard__name { font-size: 15px; font-weight: 800; line-height: 1.25; }
+.slotcard__tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.slotcard__sum { font-size: 13px; color: #475569; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.slotcard__note { margin: 0; background: #fef9c3; color: #713f12; border-radius: 8px; padding: 6px 8px; font-size: 12px; white-space: pre-wrap; }
+.slotcard__noteedit textarea { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12px; resize: vertical; background: #fffdf0; }
+.tl__row--drag { position: relative; z-index: 5; }
+.tl__row--drag .slotcard { box-shadow: 0 10px 24px rgba(15,23,42,.25); border-color: var(--accent); transform: rotate(-1deg); cursor: grabbing; }
+.tl__time--moved { color: #0f766e; background: #ccfbf1; border-radius: 6px; padding: 0 4px; }
+.tl__row--stop { grid-template-columns: 52px minmax(0, 1fr); }

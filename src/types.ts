@@ -58,6 +58,8 @@ export interface TripDay {
   times?: Record<string, string>;
   /** Flight departure "HH:MM" on flight days. */
   flightTime?: string;
+  /** The traveler's own note for a stop, by place id. */
+  notes?: Record<string, string>;
 }
 
 export interface SavedTrip {
