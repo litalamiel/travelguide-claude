@@ -128,7 +128,15 @@ export default async function handler(req, res) {
   const q = new URL(req.url, 'http://x').searchParams;
   const action = q.get('action') || 'status';
   const ai = Boolean(process.env.ANTHROPIC_API_KEY);
-  if (action === 'status') return res.status(200).json({ memory: db.enabled, ai });
+  if (action === 'status') {
+    // `check` says whether the memory really answers (e.g. the SQL wasn't run, or the wrong key was pasted).
+    let check = 'off';
+    if (db.enabled) {
+      try { await db.select('reel_lessons', 'select=id&limit=1'); check = 'ok'; }
+      catch (e) { check = String(e.message || e).slice(0, 300); }
+    }
+    return res.status(200).json({ memory: db.enabled, ai, check });
+  }
   if (!db.enabled) return res.status(200).json({ enabled: false, answers: [] });
   try {
     if (action === 'log' && req.method === 'POST') return await log(req, res);
@@ -138,6 +146,6 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Unknown action' });
   } catch (e) {
     console.error(e);
-    return res.status(502).json({ error: 'The learning memory didn’t respond.' });
+    return res.status(502).json({ error: 'The learning memory didn’t respond.', detail: String(e.message || e).slice(0, 300) });
   }
 }
