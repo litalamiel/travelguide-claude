@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { CATEGORIES, categoryById } from './categories';
 import { Carousel } from './Place';
 import { englishFor, keyFrames } from './reel';
-import { analyzeCaption, countryOf, findCaptionPlace, type SearchResult } from './geocode';
+import { analyzeCaption, countryOf, findCaptionPlace, searchPlaces, type SearchResult } from './geocode';
+import { fileToDataUrl } from './photos';
 import type { CategoryId, Place } from './types';
 import { smartGuess, teach, type LessonDraft } from './learn';
 
@@ -77,6 +78,12 @@ export interface BulkPlace {
   method?: LessonDraft['method'];
   ai?: LessonDraft['ai'];
   captionEn?: string;
+  /** The user searched the map for this reel's place themselves. */
+  manual?: boolean;
+  /** The user's notes about the place. */
+  note?: string;
+  /** Photos the user chose (reel images, key frames, their own). Unset: all the reel's images and frames. */
+  photos?: string[];
 }
 export interface BulkReel { code: string; status: 'waiting' | 'reading' | 'done' | 'none' | 'failed'; data?: ReelData; frames?: string[]; framesState?: 'loading' | 'done' | 'none' }
 
@@ -167,7 +174,7 @@ export function teachBulk(places: BulkPlace[], reels: BulkReel[]) {
     const m = p.matches[p.choice];
     const draft: LessonDraft = {
       shortcode: p.code, author: d.author, caption: d.caption, captionEn: p.captionEn, cover: d.images?.[0],
-      method: p.method ?? 'rules', guess: p.matches[0], ai: p.ai, flow: 'bulk',
+      method: p.manual ? 'none' : p.method ?? 'rules', guess: p.manual ? undefined : p.matches[0], ai: p.ai, flow: 'bulk',
     };
     teach(draft, p.keep && m ? { ...m, category: p.category ?? m.category } : undefined);
   }
@@ -180,7 +187,8 @@ export function toPlaces(places: BulkPlace[], reels: BulkReel[], uid: () => stri
     const d = reels.find((r) => r.code === p.code)?.data ?? {};
     return {
       id: uid(), name: m.name, lat: m.lat, lng: m.lng, address: m.address, category: p.category ?? m.category,
-      source: 'reel', reelUrl: reelUrl(p.code), photos: [...(d.images ?? []), ...(reels.find((r) => r.code === p.code)?.frames ?? [])].slice(0, 10),
+      source: 'reel', reelUrl: reelUrl(p.code), note: p.note || undefined,
+      photos: (p.photos ?? [...(d.images ?? []), ...(reels.find((r) => r.code === p.code)?.frames ?? [])]).slice(0, 10),
       reel: { caption: d.caption, author: d.author, authorName: d.authorName, avatar: d.avatar },
     };
   });
@@ -259,7 +267,8 @@ function MapPicker({ maps, target, onChange, collection }: {
   );
 }
 
-export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, onFocus, onAdd, onClose, maps, target, onTarget }: {
+export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, onFocus, onAdd, onClose, maps, target, onTarget, near }: {
+  near: { lat: number; lng: number };
   maps: { id: string; name: string; count: number }[];
   target: BulkTarget;
   onTarget: (t: BulkTarget) => void;
@@ -277,7 +286,10 @@ export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, o
   const reading = doneCount < reels.length;
   const keep = places.filter((p) => p.keep).length;
   const toPick = places.filter((p) => !p.sure && !p.keep).length;
-  const nothing = reels.filter((r) => r.status === 'none' || r.status === 'failed');
+  // Reels with no place: readable ones can be added by hand; unreadable ones are only listed.
+  const toAdd = reels.filter((r) => r.status === 'none' && !places.some((p) => p.code === r.code));
+  const nothing = reels.filter((r) => r.status === 'failed');
+  const openReel = focus?.startsWith('add:') ? toAdd.find((r) => `add:${r.code}` === focus) : undefined;
   const listRef = useRef<HTMLDivElement>(null);
   const set = (key: string, patch: Partial<BulkPlace>) => setPlaces((ps) => ps.map((p) => (p.key === key ? { ...p, ...patch } : p)));
   const open = places.find((p) => p.key === focus);
@@ -293,7 +305,7 @@ export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, o
           <div>
             <h2>{batch.name} · {reels.length} {reels.length === 1 ? 'reel' : 'reels'}</h2>
             <div className="muted small">
-              {reading ? `Reading ${doneCount} of ${reels.length} · ` : ''}{places.length} found{toPick ? ` · ${toPick} to pick` : ''}{nothing.length ? ` · ${nothing.length} with no place` : ''}
+              {reading ? `Reading ${doneCount} of ${reels.length} · ` : ''}{places.length} found{toPick ? ` · ${toPick} to pick` : ''}{toAdd.length ? ` · ${toAdd.length} to add yourself` : ''}{nothing.length ? ` · ${nothing.length} couldn’t be read` : ''}
             </div>
           </div>
           <button className="icon-btn" aria-label="Close without adding" onClick={onClose}>✕</button>
@@ -314,7 +326,9 @@ export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, o
                   <span className="brow__text">
                     <strong>{m.name}</strong>
                     <small>{c.label} · {m.address || p.phrase}</small>
-                    {p.sure || p.matches.length === 1
+                    {p.manual
+                      ? <span className="bchip bchip--me">Added by you</span>
+                      : p.sure || p.matches.length === 1
                       ? <span className="bchip bchip--ok">Clear match</span>
                       : <span className="bchip bchip--ask">{p.keep ? 'Picked' : 'Pick one'} · {p.matches.length} options</span>}
                   </span>
@@ -325,13 +339,29 @@ export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, o
           {reels.filter((r) => r.status === 'reading' || r.status === 'waiting').length > 0 && (
             <div className="brow brow--wait muted small">Reading {reels.filter((r) => r.status === 'reading' || r.status === 'waiting').length} more reels…</div>
           )}
+          {toAdd.map((r) => {
+            const k = `add:${r.code}`;
+            const cover = r.data?.images?.[0];
+            const line = (r.data?.caption ?? '').replace(/\s+/g, ' ').trim();
+            return (
+              <div key={k} data-key={k} className={'brow brow--add' + (focus === k ? ' brow--on' : '')}>
+                <span className="brow__spacer" aria-hidden="true" />
+                <button className="brow__main" onClick={() => onFocus(focus === k ? undefined : k)} aria-expanded={focus === k}>
+                  <span className="brow__cover">{cover && <img src={cover} alt="" />}</span>
+                  <span className="brow__text">
+                    <strong>{r.data?.author ? `@${r.data.author}` : 'Reel'}</strong>
+                    <small>{line ? `“${line.slice(0, 48)}${line.length > 48 ? '…' : ''}”` : 'No caption'}</small>
+                    <span className="bchip bchip--add">Add it yourself</span>
+                  </span>
+                </button>
+              </div>
+            );
+          })}
           {nothing.length > 0 && (
             <details className="bulk__none">
-              <summary>{nothing.length} {nothing.length === 1 ? 'reel' : 'reels'} with no place we could find</summary>
+              <summary>{nothing.length} {nothing.length === 1 ? 'reel' : 'reels'} we couldn’t read</summary>
               {nothing.map((r) => (
-                <a key={r.code} href={reelUrl(r.code)} target="_blank" rel="noreferrer" className="small">
-                  {r.data?.author ? `@${r.data.author}` : r.code} · {r.status === 'failed' ? 'couldn’t read' : 'no place in caption'} ↗
-                </a>
+                <a key={r.code} href={reelUrl(r.code)} target="_blank" rel="noreferrer" className="small">{r.code} · open on Instagram ↗</a>
               ))}
             </details>
           )}
@@ -344,27 +374,48 @@ export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, o
         </div>
       </aside>
       {open && (
-        <ReelCard key={open.key} place={open} reel={reels.find((r) => r.code === open.code)} setReels={setReels}
+        <ReelCard key={open.key} place={open} reel={reels.find((r) => r.code === open.code)} setReels={setReels} near={near}
           onChange={(patch) => set(open.key, patch)} onFocus={() => onFocus(open.key)} onClose={() => onFocus(undefined)} />
+      )}
+      {openReel && (
+        <ReelCard key={`add:${openReel.code}`} reel={openReel} setReels={setReels} near={near} onClose={() => onFocus(undefined)}
+          onCreate={(p) => { setPlaces((ps) => [...ps, p]); onFocus(p.key); }} />
       )}
     </>
   );
 }
 
-/** The reel behind one found place: big frames, creator, caption, category and place options. */
-function ReelCard({ place, reel, setReels, onChange, onFocus, onClose }: {
-  place: BulkPlace;
+/**
+ * The reel behind one found place: big frames, creator, caption, category, notes and photos.
+ * With no place yet (nothing found in the caption), the user searches the map for it here.
+ */
+function ReelCard({ place, reel, setReels, onChange, onFocus, onClose, onCreate, near }: {
+  place?: BulkPlace;
   reel?: BulkReel;
   setReels: (fn: (rs: BulkReel[]) => BulkReel[]) => void;
-  onChange: (patch: Partial<BulkPlace>) => void;
-  onFocus: () => void;
+  onChange?: (patch: Partial<BulkPlace>) => void;
+  onFocus?: () => void;
   onClose: () => void;
+  /** Called when the user picks a place for a reel that had none. */
+  onCreate?: (p: BulkPlace) => void;
+  near: { lat: number; lng: number };
 }) {
   const d = reel?.data ?? {};
-  const m = place.matches[place.choice];
-  const cat = place.category ?? m.category;
+  const m = place ? place.matches[place.choice] : undefined;
+  // Before a place is picked, what the user fills in waits here.
+  const [draft, setDraft] = useState<{ category?: CategoryId; note?: string; photos?: string[] }>({});
+  const cat: CategoryId = place?.category ?? m?.category ?? draft.category ?? 'sights';
+  const note = place ? place.note ?? '' : draft.note ?? '';
   const [more, setMore] = useState(false);
   const [allCats, setAllCats] = useState(false);
+  const [searching, setSearching] = useState(!place);
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const patch = (p: Partial<BulkPlace>) => (place ? onChange?.(p) : setDraft((x) => ({ ...x, ...p })));
+
   // Key frames are taken when a reel is opened (Instagram gives no video for reels with licensed music).
   useEffect(() => {
     if (!reel || !d.video || reel.framesState) return;
@@ -375,52 +426,177 @@ function ReelCard({ place, reel, setReels, onChange, onFocus, onClose }: {
       .catch(() => setReels((rs) => rs.map((r) => (r.code === code ? { ...r, framesState: 'none' } : r))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reel?.code]);
-  const photos = [...(d.images ?? []), ...(reel?.frames ?? [])];
+
+  // Search the map as the user types.
+  useEffect(() => {
+    const text = q.trim();
+    if (text.length < 3) { setResults([]); return; }
+    let live = true;
+    const t = setTimeout(async () => {
+      setBusy(true); setErr('');
+      try { const rs = await searchPlaces(text, near, [], 6); if (live) setResults(rs); }
+      catch { if (live) setErr('The map search isn’t answering right now. Try again in a moment.'); }
+      finally { if (live) setBusy(false); }
+    }, 450);
+    return () => { live = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
+
+  const reelPhotos = [...(d.images ?? []), ...(reel?.frames ?? [])];
+  const chosen = (place ? place.photos : draft.photos) ?? reelPhotos;
+  const own = chosen.filter((x) => !reelPhotos.includes(x));
+  const tiles = [...reelPhotos, ...own];
+  const togglePhoto = (src: string) => patch({ photos: chosen.includes(src) ? chosen.filter((x) => x !== src) : [...chosen, src].slice(0, 10) });
+  const upload = async (files: FileList | null) => {
+    if (!files) return;
+    const add: string[] = [];
+    for (const f of Array.from(files).slice(0, 10)) { try { add.push(await fileToDataUrl(f)); } catch { /* skip */ } }
+    patch({ photos: [...chosen, ...add].slice(0, 10) });
+  };
+
+  const pick = (r: SearchResult) => {
+    const category = place?.category ?? draft.category ?? r.category;
+    if (place) {
+      onChange?.({ matches: [r], choice: 0, sure: true, keep: true, manual: true, category });
+      onFocus?.();
+    } else if (reel) {
+      onCreate?.({ key: `${reel.code}:manual`, code: reel.code, phrase: r.name, matches: [r], choice: 0, sure: true, keep: true, manual: true, method: 'none', category, note: draft.note, photos: draft.photos });
+    }
+    setSearching(false); setQ(''); setResults([]);
+  };
+
   const caption = d.caption ?? '';
   const shownCats = allCats ? CATEGORIES.map((c) => c.id) : Array.from(new Set([cat, 'stay', 'eat', 'nature', 'experiences', 'views'] as CategoryId[]));
+  const title = m?.name ?? (d.author ? `Reel by @${d.author}` : 'This reel');
   return (
-    <section className="bcard" aria-label={`Reel for ${m.name}`}>
+    <section className="bcard" aria-label={m ? `Reel for ${m.name}` : 'Add this reel’s place yourself'}>
       <button className="icon-btn bcard__close" aria-label="Close reel" onClick={onClose}>✕</button>
       <div className="bcard__media">
-        {photos.length ? <Carousel key={photos.length} photos={photos} alt={`From the reel about ${m.name}`} /> : <div className="bcard__nomedia muted small">No images from this reel</div>}
+        {reelPhotos.length ? <Carousel key={reelPhotos.length} photos={reelPhotos} alt={`From the reel ${m ? `about ${m.name}` : ''}`} /> : <div className="bcard__nomedia muted small">No images from this reel</div>}
       </div>
       {reel?.framesState === 'loading' && <p className="muted small bcard__pad">Taking key frames from the video…</p>}
       {reel?.data && !d.video && <p className="muted small bcard__pad">Instagram didn’t share this reel’s video (usually because of licensed music), so only the cover is shown.</p>}
       <div className="bcard__body">
-        <div className="bcard__title">
-          <CatIcon id={cat} size={36} />
-          <div><strong>{m.name}</strong><div className="muted small">{categoryById(cat).label} · {m.address}</div></div>
-        </div>
+        {m ? (
+          <div className="bcard__title">
+            <CatIcon id={cat} size={36} />
+            <div><strong>{m.name}</strong><div className="muted small">{categoryById(cat).label} · {m.address}</div></div>
+          </div>
+        ) : (
+          <p className="small bcard__lead"><strong>We couldn’t find a place in this reel’s caption.</strong> <span className="muted">Add it yourself below.</span></p>
+        )}
         <div className="bcard__creator">
           {d.avatar ? <img src={d.avatar} alt="" /> : <span className="bcard__av" aria-hidden="true">{(d.author ?? '?')[0]?.toUpperCase()}</span>}
           <strong>{d.author ? `@${d.author}` : 'Instagram'}</strong>
-          <a href={reelUrl(place.code)} target="_blank" rel="noreferrer">Watch reel ↗</a>
+          <a href={reelUrl(reel?.code ?? place?.code ?? '')} target="_blank" rel="noreferrer">Watch reel ↗</a>
         </div>
         {caption && (
           <p className={'bcard__caption' + (more ? '' : ' bcard__caption--short')}>{caption}</p>
         )}
         {caption.length > 180 && <button className="linkbtn" onClick={() => setMore(!more)}>{more ? 'Show less' : 'Show more'}</button>}
-        {!place.sure && place.matches.length > 1 && (
+        {place && !place.manual && !place.sure && place.matches.length > 1 && (
           <div className="bcard__opts">
             <div className="small"><strong>Which place is it?</strong> <span className="muted">From “{place.phrase}”</span></div>
             {place.matches.map((o, i) => (
               <label key={i} className={'bopt' + (i === place.choice ? ' bopt--on' : '')}>
-                <input type="radio" name={place.key} checked={i === place.choice} onChange={() => { onChange({ choice: i, keep: true }); onFocus(); }} />
+                <input type="radio" name={place.key} checked={i === place.choice} onChange={() => { onChange?.({ choice: i, keep: true }); onFocus?.(); }} />
                 <span><strong>{o.name}</strong><small>{categoryById(o.category).label} · {o.address}</small></span>
               </label>
             ))}
           </div>
         )}
+        {searching ? (
+          <div className="bcard__find">
+            <label className="bcard__label" htmlFor={`find-${title}`}>{place ? 'Search for the right place' : 'Where is it?'}</label>
+            <input id={`find-${title}`} className="bcard__input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a place, e.g. Wildkogel Rodelbahn" autoFocus={!place} />
+            {busy && <div className="muted small">Searching the map…</div>}
+            {err && <div className="warn small">{err}</div>}
+            {results.length > 0 && (
+              <div className="bcard__results" role="listbox" aria-label="Places on the map">
+                {results.map((r, i) => (
+                  <button key={i} role="option" aria-selected={false} onClick={() => pick(r)}>
+                    <strong>{r.name}</strong><small>{categoryById(r.category).label} · {r.address}</small>
+                  </button>
+                ))}
+              </div>
+            )}
+            {q.trim().length >= 3 && !busy && !err && !results.length && <div className="muted small">Nothing on the map with that name. Try a shorter name or add the town.</div>}
+            {place && <button className="linkbtn" onClick={() => { setSearching(false); setQ(''); }}>Cancel</button>}
+          </div>
+        ) : (
+          <button className="linkbtn" onClick={() => setSearching(true)}>Not the right place? Search the map</button>
+        )}
+        <div className="bcard__label">Category</div>
         <div className="bcard__cats" role="group" aria-label="Category">
           {shownCats.map((id) => {
             const c = categoryById(id);
-            return <button key={id} className={'pillbtn' + (id === cat ? ' pillbtn--on' : '')} aria-pressed={id === cat} onClick={() => onChange({ category: id })}>{c.label}</button>;
+            return <button key={id} className={'pillbtn' + (id === cat ? ' pillbtn--on' : '')} aria-pressed={id === cat} onClick={() => patch({ category: id })}>{c.label}</button>;
           })}
           {!allCats && <button className="pillbtn" onClick={() => setAllCats(true)}>More…</button>}
         </div>
-        <label className="check"><input type="checkbox" checked={place.keep} onChange={(e) => onChange({ keep: e.target.checked })} /> Add this place to the map</label>
+        <label className="bcard__label" htmlFor={`note-${title}`}>Notes</label>
+        <textarea id={`note-${title}`} className="bcard__note" rows={2} value={note} onChange={(e) => patch({ note: e.target.value })} placeholder="e.g. go early, book ahead" />
+        <div className="bcard__label">Photos · {chosen.length} chosen</div>
+        <div className="bphotos">
+          {tiles.map((src, i) => {
+            const on = chosen.includes(src);
+            return (
+              <button key={i} className={'bphoto' + (on ? ' bphoto--on' : '')} aria-pressed={on} aria-label={`${on ? 'Remove' : 'Use'} photo ${i + 1}`} onClick={() => togglePhoto(src)}>
+                <img src={src} alt="" />
+              </button>
+            );
+          })}
+          {chosen.length < 10 && <button className="bphoto bphoto--add" aria-label="Add your own photos" onClick={() => fileRef.current?.click()}>＋</button>}
+          <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { upload(e.target.files); e.target.value = ''; }} />
+        </div>
+        <div className="muted small">Tap the reel’s frames to choose them · ＋ adds your own</div>
+        {place && <label className="check"><input type="checkbox" checked={place.keep} onChange={(e) => onChange?.({ keep: e.target.checked })} /> Add this place to the map</label>}
+        {place?.manual && <button className="btn btn--primary bcard__done" onClick={onClose}>Done</button>}
       </div>
     </section>
+  );
+}
+
+/** Search the map for a reel's place yourself (single pasted reel). */
+export function FindOnMap({ near, onPick, open: startOpen }: { near: { lat: number; lng: number }; onPick: (r: SearchResult) => void; open: boolean }) {
+  const [open, setOpen] = useState(startOpen);
+  const [q, setQ] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => setOpen((o) => o || startOpen), [startOpen]);
+  useEffect(() => {
+    const text = q.trim();
+    if (text.length < 3) { setResults([]); return; }
+    let live = true;
+    const t = setTimeout(async () => {
+      setBusy(true); setErr('');
+      try { const rs = await searchPlaces(text, near, [], 6); if (live) setResults(rs); }
+      catch { if (live) setErr('The map search isn’t answering right now. Try again in a moment.'); }
+      finally { if (live) setBusy(false); }
+    }, 450);
+    return () => { live = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
+  if (!open) return <button className="linkbtn" onClick={() => setOpen(true)}>Not the right place? Search the map yourself</button>;
+  return (
+    <div className="bcard__find findmap">
+      {startOpen && <p className="small findmap__lead"><strong>We couldn’t find this reel’s place.</strong> <span className="muted">Add it yourself: search the map, then choose the category and photos on the next card.</span></p>}
+      <label className="bcard__label" htmlFor="findmap-q">Where is it?</label>
+      <input id="findmap-q" className="bcard__input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a place, e.g. Wildkogel Rodelbahn" />
+      {busy && <div className="muted small">Searching the map…</div>}
+      {err && <div className="warn small">{err}</div>}
+      {results.length > 0 && (
+        <div className="bcard__results" role="listbox" aria-label="Places on the map">
+          {results.map((r, i) => (
+            <button key={i} role="option" aria-selected={false} onClick={() => onPick(r)}>
+              <strong>{r.name}</strong><small>{categoryById(r.category).label} · {r.address}</small>
+            </button>
+          ))}
+        </div>
+      )}
+      {q.trim().length >= 3 && !busy && !err && !results.length && <div className="muted small">Nothing on the map with that name. Try a shorter name or add the town.</div>}
+    </div>
   );
 }
 

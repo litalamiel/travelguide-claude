@@ -12,7 +12,7 @@ import PlaceList from './PlaceList';
 import { englishFor, keyFrames } from './reel';
 import { shortcodeOf, smartGuess, teach, type LessonDraft } from './learn';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
-import { BulkReview, CollectionImport, batchFromHash, collectionFrom, teachBulk, toPlaces, useBulkReader, type BulkTarget, type ReelBatch } from './Bulk';
+import { BulkReview, CollectionImport, FindOnMap, batchFromHash, collectionFrom, teachBulk, toPlaces, useBulkReader, type BulkTarget, type ReelBatch } from './Bulk';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -201,6 +201,12 @@ export default function App() {
     // Only when a new collection arrives, not on every map change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batch]);
+  // Fly to the reel's place when one is opened (also right after a place is added by hand).
+  useEffect(() => {
+    const p = bulkFocus ? bulkPins.find((x) => x.key === bulkFocus) : undefined;
+    if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkFocus]);
   const addBulk = () => {
     const add = toPlaces(bulkReader.places, bulkReader.reels, uid);
     teachBulk(bulkReader.places, bulkReader.reels);
@@ -291,7 +297,7 @@ export default function App() {
         {batch && (
           <BulkReview batch={batch} reels={bulkReader.reels} places={bulkReader.places} setPlaces={bulkReader.setPlaces} setReels={bulkReader.setReels}
             focus={bulkFocus}
-            onFocus={(k) => { setBulkFocus(k); const p = k ? bulkPins.find((x) => x.key === k) : undefined; if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() }); }}
+            onFocus={setBulkFocus} near={center}
             maps={maps.map((m) => ({ id: m.id, name: m.name, count: m.places.length }))} target={bulkTarget} onTarget={setBulkTarget}
             onAdd={addBulk} onClose={() => { setBatch(undefined); setBulkFocus(undefined); }} />
         )}
@@ -603,6 +609,10 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
                 })}
               </div>
             ))}
+            {!busy && (
+              <FindOnMap near={near} open={found.every((f) => f.matches.length === 0)}
+                onPick={(m) => onAdd(m, url.trim(), reel, gallery.slice(0, 10), note, undefined, lessonBase.current ? { ...lessonBase.current, method: 'none', guess: undefined } : undefined)} />
+            )}
           </div>
         )}
       </div>
