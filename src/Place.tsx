@@ -3,6 +3,7 @@ import { CATEGORIES, KIDS, categoryById } from './categories';
 import { fileToDataUrl } from './photos';
 import type { CategoryId, PendingPlace, Place } from './types';
 import { langName, looksNonEnglish, translateToEnglish } from './reel';
+import { StoryPlayer } from './Stories';
 
 function Svg({ d, size = 18 }: { d: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
@@ -189,10 +190,55 @@ export function ConfirmPlace({ pending, onChange, onCancel, onAdd }: { pending: 
   );
 }
 
-export function PlaceDetail({ place, onUpdate, onRemove, onClose }: { place: Place; onUpdate: (patch: Partial<Place>) => void; onRemove: () => void; onClose: () => void }) {
+export function PlaceDetail({ place, onUpdate, onRemove, onClose, readOnly, selling, creatorName }: {
+  place: Place; onUpdate: (patch: Partial<Place>) => void; onRemove: () => void; onClose: () => void;
+  /** Buyer's preview: no editing. */
+  readOnly?: boolean;
+  /** Creator view: show the Free preview switch. */
+  selling?: boolean;
+  /** Places on a creator map show the creator above the stories. */
+  creatorName?: string;
+}) {
   const c = categoryById(place.category);
   const [editing, setEditing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  if (creatorName && place.source !== 'reel') {
+    // Design 3A: creator, tags, name, story player, note.
+    return (
+      <aside className="detail detail--story" aria-label={`${place.name} details`}>
+        <button className="icon-btn detail__close" aria-label="Close" onClick={onClose}><Svg d="M6 6l12 12M18 6L6 18" size={20} /></button>
+        <div className="card__tags">
+          <span className="tag" style={{ background: c.color, color: '#fff' }}>{c.label}</span>
+          <FlagTags place={place} />
+          {place.free && selling && <span className="tag tag--free">Free preview</span>}
+        </div>
+        <h2 className="detail__title">{place.name}</h2>
+        <div className="detail__source">
+          <span className="creator__avatar creator__avatar--letter">{creatorName.replace('@', '')[0]?.toUpperCase()}</span>
+          <span><strong>{creatorName}</strong><small>{place.stories?.length ? `${place.stories.length} ${place.stories.length === 1 ? 'story' : 'stories'}` : 'No stories yet'}</small></span>
+        </div>
+        {place.stories?.length ? <StoryPlayer ids={place.stories} label={place.name} /> : <Carousel photos={place.photos ?? []} alt={place.name} />}
+        {readOnly ? (place.note && <p className="detail__note">“{place.note}”</p>) : (
+          <label className="field">Your note for travelers
+            <textarea rows={2} value={place.note ?? ''} onChange={(e) => onUpdate({ note: e.target.value })} placeholder="e.g. go before 12, book a week ahead" />
+          </label>
+        )}
+        {selling && (
+          <>
+            <button className={'chip' + (place.free ? ' chip--on' : '')} aria-pressed={!!place.free} onClick={() => onUpdate({ free: !place.free })}>{place.free ? 'Free preview ✓' : 'Make it a free preview'}</button>
+            <PriorityControl value={place} onChange={(patch) => onUpdate(patch)} />
+            <label className="field">Category
+              <select value={place.category} onChange={(e) => onUpdate({ category: e.target.value as CategoryId })}>
+                {CATEGORIES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+              </select>
+            </label>
+            <button className="btn btn--small btn--danger" style={{ alignSelf: 'flex-start' }} onClick={onRemove}>Remove place</button>
+          </>
+        )}
+        <a className="btn btn--primary" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([place.name, place.address].filter(Boolean).join(', '))}`} target="_blank" rel="noreferrer">Open in Google Maps ↗</a>
+      </aside>
+    );
+  }
   return (
     <aside className="detail" aria-label={`${place.name} details`}>
       <button className="icon-btn detail__close" aria-label="Close" onClick={onClose}><Svg d="M6 6l12 12M18 6L6 18" size={20} /></button>

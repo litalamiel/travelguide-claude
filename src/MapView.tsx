@@ -22,9 +22,19 @@ interface Props {
   bulk?: { key: string; lat: number; lng: number; category: CategoryId; sure: boolean; keep: boolean; name: string }[];
   bulkFocus?: string;
   onBulkSelect?: (key: string) => void;
+  /** Selling: 'preview' = buyer's preview (locked places are dark lock pins), 'creator' = small lock badge on paid places. */
+  lockMode?: 'preview' | 'creator';
+  freeSet?: Set<string>;
+  onLocked?: () => void;
+  /** Creator's photo (URL) or initial, shown on open pins in the buyer's preview. */
+  creatorBadge?: { avatar?: string; letter: string };
+  /** Change to fit every place in view (e.g. when the buyer's preview opens). */
+  fitKey?: number;
 }
 
-export default function MapView({ places, selectedId, onSelect, onCenterChange, plan, activeDay, flyTo, preview, onPreviewMove, bulk, bulkFocus, onBulkSelect }: Props) {
+export default function MapView({ places, selectedId, onSelect, onCenterChange, plan, activeDay, flyTo, preview, onPreviewMove, bulk, bulkFocus, onBulkSelect, lockMode, freeSet, onLocked, creatorBadge, fitKey }: Props) {
+  const lockedRef = useRef(onLocked);
+  lockedRef.current = onLocked;
   const bulkMarkers = useRef<maplibregl.Marker[]>([]);
   const bulkSelect = useRef(onBulkSelect);
   bulkSelect.current = onBulkSelect;
@@ -73,6 +83,15 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
     markers.current.forEach((mk) => mk.remove());
     markers.current = places.map((p) => {
       const c = categoryById(p.category);
+      const isFree = !freeSet || freeSet.has(p.id);
+      if (lockMode === 'preview' && !isFree) {
+        const lk = document.createElement('button');
+        lk.className = 'lockpin';
+        lk.setAttribute('aria-label', 'Locked place');
+        lk.innerHTML = '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11h14v10H5zM8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+        lk.addEventListener('click', (e) => { e.stopPropagation(); lockedRef.current?.(); });
+        return new maplibregl.Marker({ element: lk, anchor: 'center' }).setLngLat([p.lng, p.lat]).addTo(m);
+      }
       const dayIndex = plan?.findIndex((d) => d.places.some((q) => q.id === p.id)) ?? -1;
       const stop = dayIndex >= 0 ? plan![dayIndex].places.findIndex((q) => q.id === p.id) + 1 : 0;
       // MapLibre sets `transform` on the marker element, so the rotated teardrop lives in a child.
@@ -86,11 +105,24 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
       btn.innerHTML = `<span class="pin__shape" style="background:${color}"></span><span class="pin__inner">${inner}</span>` +
         (p.mustSee ? `<span class="pin__star"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="#fff"><path d="${STAR}"/></svg></span>` : '') +
         (p.kids ? `<span class="pin__kids" aria-hidden="true">${KIDS.text}</span>` : '') +
-        (p.source === 'reel' ? (p.photos?.[0] ? `<span class="pin__badge" style="background-image:url('${p.photos[0]}')"></span>` : '<span class="pin__badge pin__badge--play">▶</span>') : '');
+        (lockMode === 'creator' && !isFree ? '<span class="pin__paid" aria-hidden="true"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"><path d="M5 11h14v10H5zM8 11V8a4 4 0 0 1 8 0v3"/></svg></span>' : '') +
+        (lockMode === 'preview' && creatorBadge ? (creatorBadge.avatar ? `<span class="pin__badge" style="background-image:url('${creatorBadge.avatar}')"></span>` : `<span class="pin__badge pin__badge--letter">${creatorBadge.letter.replace(/[<>&"']/g, '')}</span>`) :
+        p.source === 'reel' ? (p.photos?.[0] ? `<span class="pin__badge" style="background-image:url('${p.photos[0]}')"></span>` : '<span class="pin__badge pin__badge--play">▶</span>') : '');
       btn.addEventListener('click', (e) => { e.stopPropagation(); onSelect(p.id); });
       return new maplibregl.Marker({ element: btn, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(m);
     });
-  }, [places, selectedId, plan, activeDay, onSelect]);
+  }, [places, selectedId, plan, activeDay, onSelect, lockMode, freeSet, creatorBadge]);
+
+  // Fit all places in view on request.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !fitKey || !places.length) return;
+    const b = new maplibregl.LngLatBounds();
+    places.forEach((p) => b.extend([p.lng, p.lat]));
+    const phone = window.innerWidth <= 720;
+    m.fitBounds(b, { padding: phone ? { top: 90, bottom: Math.round(window.innerHeight * 0.45), left: 40, right: 40 } : { top: 90, bottom: 60, left: 70, right: 80 }, maxZoom: 14, duration: 500 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey]);
 
   // Bulk import pins
   useEffect(() => {

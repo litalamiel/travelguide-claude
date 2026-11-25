@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react';
+import { useState, type ReactNode, type RefObject } from 'react';
 import { KIDS, categoryById } from './categories';
 import type { Place } from './types';
 
@@ -23,6 +23,7 @@ function PlaceCard({ p, on, onSelect }: { p: Place; on: boolean; onSelect: () =>
         <span className="pcard__photo" style={{ background: `linear-gradient(135deg, ${c.color}cc, ${c.color})` }}>
           {p.photos?.length ? <img src={p.photos[0]} alt="" /> : <Svg d={c.icon} size={30} w={2.2} />}
           {p.source === 'reel' && <span className="pcard__reel">▶ reel</span>}
+          {!!p.stories?.length && <span className="pcard__reel">▶ {p.stories.length} {p.stories.length === 1 ? 'story' : 'stories'}</span>}
         </span>
         <span className="pcard__body">
           <span className="pcard__name">{p.name}</span>
@@ -46,19 +47,31 @@ function PlaceCard({ p, on, onSelect }: { p: Place; on: boolean; onSelect: () =>
 }
 
 /** Option A: places list beside the map on desktop; a sheet under the map on phones. */
-export default function PlaceList({ places, selectedId, onSelect, listRef }: {
+export default function PlaceList({ places, selectedId, onSelect, listRef, header, lockedCount = 0, onLocked }: {
   places: Place[]; selectedId?: string; onSelect: (id: string) => void; listRef: RefObject<HTMLDivElement>;
+  /** Creator view: the Studio card above the places. */
+  header?: ReactNode;
+  /** Buyer's preview: how many places are locked (shown as one row under the free ones). */
+  lockedCount?: number; onLocked?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <aside className={'plist' + (expanded ? ' plist--open' : '')} aria-label="Places" ref={listRef}>
       <button className="plist__handle" onClick={() => setExpanded((x) => !x)} aria-expanded={expanded}>
         <span className="plist__grab" aria-hidden="true" />
-        <span className="plist__count">{places.length} {places.length === 1 ? 'place' : 'places'}</span>
+        <span className="plist__count">{places.length + lockedCount} {places.length + lockedCount === 1 ? 'place' : 'places'}{lockedCount ? ` · ${lockedCount} locked` : ''}</span>
         <span className="plist__more">{expanded ? 'Show map' : 'Show list'}</span>
       </button>
+      {header}
       <ul className="plist__ul">
         {places.map((p) => <PlaceCard key={p.id} p={p} on={p.id === selectedId} onSelect={() => { onSelect(p.id); setExpanded(false); }} />)}
+        {lockedCount > 0 && (
+          <li><button className="plocked" onClick={onLocked}>
+            <span className="plocked__ic"><Svg d="M5 11h14v10H5zM8 11V8a4 4 0 0 1 8 0v3" size={18} w={2.4} /></span>
+            <span><strong>{lockedCount} more places locked</strong><small>Get the map to open them</small></span>
+          </button></li>
+        )}
+        {!places.length && !lockedCount && <li className="muted small plist__empty">No places on this map yet. Use Import highlight to add places with their stories.</li>}
       </ul>
     </aside>
   );

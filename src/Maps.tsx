@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { categoryById } from './categories';
+import { useRef, useState } from 'react';
+import { freeIds } from './Creator';
+import { fileToDataUrl } from './photos';
 import type { Listing, TripMap } from './types';
 
 const CURRENCY_SYMBOL: Record<Listing['currency'], string> = { USD: '$', EUR: '€', GBP: '£', ILS: '₪' };
@@ -13,8 +14,8 @@ function Close({ onClick }: { onClick: () => void }) {
   );
 }
 
-export function MapsPanel({ maps, currentId, onSwitch, onCreate, onRename, onDelete, onSell, onClose }: {
-  maps: TripMap[]; currentId: string;
+export function MapsPanel({ maps, currentId, creator, onSwitch, onCreate, onRename, onDelete, onSell, onClose }: {
+  maps: TripMap[]; currentId: string; creator?: boolean;
   onSwitch: (id: string) => void; onCreate: (name: string) => void; onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void; onSell: () => void; onClose: () => void;
 }) {
@@ -63,8 +64,13 @@ export function MapsPanel({ maps, currentId, onSwitch, onCreate, onRename, onDel
           <button className="btn btn--primary" type="submit" disabled={!name.trim()}>Create map</button>
         </form>
         <div className="sell-cta">
-          <div><strong>Are you a creator?</strong><div className="muted small">Sell the current map to your followers.</div></div>
-          <button className="btn" onClick={onSell}>Sell this map</button>
+          {creator ? <>
+            <div><strong>Selling this map</strong><div className="muted small">Price, cover, what’s inside and the landing page.</div></div>
+            <button className="btn" onClick={onSell}>Price and page</button>
+          </> : <>
+            <div><strong>Are you a creator?</strong><div className="muted small">Switch to the creator account to make maps you sell.</div></div>
+            <button className="btn" onClick={onSell}>Switch to Creator</button>
+          </>}
         </div>
       </div>
     </div>
@@ -77,12 +83,25 @@ export function SellPanel({ map, onSave, onPreview, onClose }: { map: TripMap; o
   const [description, setDescription] = useState(l?.description ?? '');
   const [price, setPrice] = useState(String(l?.price ?? 9));
   const [currency, setCurrency] = useState<Listing['currency']>(l?.currency ?? 'USD');
-  const [previewCount, setPreviewCount] = useState(Math.min(l?.previewCount ?? 3, map.places.length));
+  const [cover, setCover] = useState(l?.cover);
+  const [inside, setInside] = useState((l?.inside ?? []).join('\n'));
+  const [code, setCode] = useState(l?.discount?.code ?? '');
+  const [percent, setPercent] = useState(String(l?.discount?.percent ?? ''));
+  const [ends, setEnds] = useState(l?.discount?.endsAt?.slice(0, 10) ?? '');
   const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState('');
+  const coverInput = useRef<HTMLInputElement>(null);
   const priceNum = Number(price);
+  const free = freeIds(map).size;
   const valid = creatorName.trim() && priceNum >= 1 && map.places.length >= 3;
+  const touch = <T,>(fn: (v: T) => void) => (v: T) => { fn(v); setSaved(false); };
 
-  const build = (published: boolean): Listing => ({ published, creatorName: creatorName.trim(), description: description.trim(), price: priceNum, currency, previewCount });
+  const build = (published: boolean): Listing => ({
+    published, creatorName: creatorName.trim(), description: description.trim(), price: priceNum, currency,
+    previewCount: l?.previewCount ?? 0, cover,
+    inside: inside.split('\n').map((x) => x.trim()).filter(Boolean),
+    discount: Number(percent) > 0 ? { code: code.trim().toUpperCase(), percent: Math.min(90, Number(percent)), endsAt: ends ? new Date(`${ends}T23:59:59`).toISOString() : undefined } : undefined,
+  });
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -90,67 +109,45 @@ export function SellPanel({ map, onSave, onPreview, onClose }: { map: TripMap; o
         <div className="modal__head"><h2>Sell “{map.name}”</h2><Close onClick={onClose} /></div>
         {map.places.length < 3 && <p className="warn small">Add at least 3 places before selling this map.</p>}
         <label className="field">Your creator name
-          <input value={creatorName} onChange={(e) => { setCreatorName(e.target.value); setSaved(false); }} placeholder="e.g. @yourhandle" />
+          <input value={creatorName} onChange={(e) => touch(setCreatorName)(e.target.value)} placeholder="e.g. Maya Travels" />
         </label>
-        <label className="field">What buyers get
-          <textarea rows={3} value={description} onChange={(e) => { setDescription(e.target.value); setSaved(false); }} placeholder="My favourite cafés, viewpoints and a 4-day route…" />
+        <label className="field">Short description
+          <textarea rows={2} value={description} onChange={(e) => touch(setDescription)(e.target.value)} placeholder="My favourite city. The best spots from 6 visits…" />
+        </label>
+        <div className="field-label">Cover photo</div>
+        <div className="row cover-pick">
+          {cover ? <img src={cover} alt="Cover" className="cover-pick__img" /> : <span className="muted small">No cover yet. The first place photo is used.</span>}
+          <button className="btn btn--small" onClick={() => coverInput.current?.click()}>{cover ? 'Change' : 'Choose photo'}</button>
+          {cover && <button className="btn btn--small btn--danger" onClick={() => { setCover(undefined); setSaved(false); }}>Remove</button>}
+          <input ref={coverInput} type="file" accept="image/*" hidden onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (!f) return; try { setCover(await fileToDataUrl(f, 1200)); setSaved(false); } catch (x) { setErr((x as Error).message); } }} />
+        </div>
+        <label className="field">What’s inside · one line each
+          <textarea rows={3} value={inside} onChange={(e) => touch(setInside)(e.target.value)} placeholder={'The hotels I always go back to\nRestaurants, coffee and street food'} />
         </label>
         <div className="grid2">
           <label className="field">Price
-            <input type="number" min={1} step={0.5} value={price} onChange={(e) => { setPrice(e.target.value); setSaved(false); }} />
+            <input type="number" min={1} step={0.5} value={price} onChange={(e) => touch(setPrice)(e.target.value)} />
           </label>
           <label className="field">Currency
-            <select value={currency} onChange={(e) => { setCurrency(e.target.value as Listing['currency']); setSaved(false); }}>
+            <select value={currency} onChange={(e) => touch(setCurrency)(e.target.value as Listing['currency'])}>
               <option value="USD">USD $</option><option value="EUR">EUR €</option><option value="GBP">GBP £</option><option value="ILS">ILS ₪</option>
             </select>
           </label>
         </div>
-        <label className="field">Free preview: {previewCount} of {map.places.length} places
-          <input type="range" min={0} max={Math.max(0, map.places.length - 1)} value={previewCount} onChange={(e) => { setPreviewCount(Number(e.target.value)); setSaved(false); }} />
-        </label>
-        <p className="muted small">Buyers see the free places right away. The rest of the map and your trip plan unlock after they pay. Checkout and payouts are not connected yet, so nothing is charged.</p>
+        <div className="field-label">Launch discount (optional)</div>
+        <div className="grid3">
+          <label className="field">Code<input value={code} onChange={(e) => touch(setCode)(e.target.value)} placeholder="MAYA20" /></label>
+          <label className="field">% off<input type="number" min={0} max={90} value={percent} onChange={(e) => touch(setPercent)(e.target.value)} placeholder="20" /></label>
+          <label className="field">Ends<input type="date" value={ends} onChange={(e) => touch(setEnds)(e.target.value)} /></label>
+        </div>
+        <p className="muted small">Free preview: {free} of {map.places.length} places. Choose them with “Free preview” on each place. Everything else shows as a locked pin until someone buys.</p>
+        {err && <p className="warn small">{err}</p>}
         <div className="row">
           {l?.published && <button className="btn btn--danger" onClick={() => { onSave(build(false)); setSaved(true); }}>Stop selling</button>}
-          <button className="btn" disabled={!valid} onClick={() => { onSave(build(true)); onPreview(); }}>Preview buyer page</button>
+          <button className="btn" disabled={!valid} onClick={() => { onSave(build(l?.published ?? false)); onPreview(); }}>See landing page</button>
           <button className="btn btn--primary" disabled={!valid} onClick={() => { onSave(build(true)); setSaved(true); }}>{l?.published ? 'Save changes' : 'Put up for sale'}</button>
         </div>
         {saved && <p className="small" role="status">Saved.</p>}
-      </div>
-    </div>
-  );
-}
-
-export function BuyerPreview({ map, onClose, onEdit }: { map: TripMap; onClose: () => void; onEdit: () => void }) {
-  const l = map.listing;
-  if (!l) return null;
-  const free = map.places.slice(0, l.previewCount);
-  const locked = map.places.length - free.length;
-  const cats = new Set(map.places.map((p) => categoryById(p.category).label));
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal buyer" role="dialog" aria-label="Buyer page preview" onClick={(e) => e.stopPropagation()}>
-        <div className="modal__head"><span className="pill-tag">Preview of what buyers see</span><Close onClick={onClose} /></div>
-        <div className="buyer__hero">
-          <div className="small">{l.creatorName}</div>
-          <h2>{map.name}</h2>
-          <div className="small">{map.places.length} places · {[...cats].slice(0, 4).join(', ')}</div>
-        </div>
-        {l.description && <p>{l.description}</p>}
-        <div className="small muted">Free preview</div>
-        <ul className="buyer__list">
-          {free.map((p) => (
-            <li key={p.id}><span className="dot" style={{ background: categoryById(p.category).color }} /><span><strong>{p.name}</strong><small>{categoryById(p.category).label}</small></span></li>
-          ))}
-          {locked > 0 && (
-            <li className="buyer__locked">
-              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
-              <span>{locked} more places locked</span>
-            </li>
-          )}
-        </ul>
-        <button className="btn btn--primary btn--block" disabled title="Checkout isn't connected yet">Unlock full map · {formatPrice(l)}</button>
-        <p className="muted small">Checkout isn't connected yet. Next step: real payments with Stripe, and a public link for this page.</p>
-        <button className="btn" onClick={onEdit}>Edit listing</button>
       </div>
     </div>
   );
