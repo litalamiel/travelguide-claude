@@ -33,6 +33,10 @@ export interface Place {
     captionLang?: string;
   };
   visited?: boolean;
+  /** Creator maps: short story videos for this place (ids of clips kept in this browser, see clips.ts). */
+  stories?: string[];
+  /** Creator maps: shown open in the buyer's preview; every other place is a locked pin. */
+  free?: boolean;
 }
 
 /** A place the user is looking at on the map before confirming "Add to map". */
@@ -82,7 +86,22 @@ export interface Listing {
   description: string;
   price: number;
   currency: 'USD' | 'EUR' | 'GBP' | 'ILS';
+  /** Old listings only: the first N places were free. New ones use Place.free. */
   previewCount: number;
+  /** Landing page cover photo (small JPEG data URL). */
+  cover?: string;
+  /** "What's inside" lines on the landing page. */
+  inside?: string[];
+  /** Optional launch discount shown with a countdown. */
+  discount?: { code: string; percent: number; endsAt?: string };
+}
+
+export type AccountMode = 'traveler' | 'creator';
+
+export interface CreatorProfile {
+  name: string;
+  handle?: string;
+  avatar?: string;
 }
 
 export interface TripMap {
@@ -92,4 +111,6 @@ export interface TripMap {
   createdAt: string;
   listing?: Listing;
   trips?: SavedTrip[];
+  /** Maps made in the creator account (to sell). Traveler maps leave this unset. */
+  creator?: boolean;
 }

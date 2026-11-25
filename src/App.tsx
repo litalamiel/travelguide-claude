@@ -4,14 +4,17 @@ import { CATEGORIES, KIDS, categoryById } from './categories';
 import { analyzeCaption, findCaptionPlace, searchPlaces, type SearchResult } from './geocode';
 import { daysFromTrip, planTrip, toTripDays, type PlanOptions } from './planner';
 import { loadMaps, newMap, saveMaps } from './storage';
-import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } from './types';
+import type { AccountMode, CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } from './types';
 import { Itinerary, TripsPanel } from './Trips';
 import { arrangeMeals } from './timeline';
 import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, PlaceDetail } from './Place';
 import PlaceList from './PlaceList';
 import { englishFor, keyFrames } from './reel';
 import { shortcodeOf, smartGuess, teach, type LessonDraft } from './learn';
-import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
+import { MapsPanel, SellPanel } from './Maps';
+import { CreatorStats, LandingPage, LockedSheet, ModeSwitch, Studio, freeIds } from './Creator';
+import HighlightImport from './Highlight';
+import { loadMode, saveMode } from './account';
 import { BulkReview, CollectionImport, FindOnMap, batchFromHash, collectionFrom, teachBulk, toPlaces, useBulkReader, type BulkTarget, type ReelBatch } from './Bulk';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -26,15 +29,26 @@ function Icon({ d, size = 20 }: { d: string; size?: number }) {
 
 export default function App() {
   const [maps, setMaps] = useState<TripMap[]>(loadMaps);
-  const [mapId, setMapId] = useState<string>(() => maps[0].id);
-  const current = maps.find((m) => m.id === mapId) ?? maps[0];
+  // Design 1A: two accounts in one app. Each has its own maps; creator maps are the ones you sell.
+  const [mode, setModeState] = useState<AccountMode>(loadMode);
+  const inMode = (m: TripMap, md: AccountMode = mode) => !!m.creator === (md === 'creator');
+  const [mapId, setMapId] = useState<string>(() => (maps.find((m) => inMode(m)) ?? maps[0]).id);
+  const current = maps.find((m) => m.id === mapId) ?? maps.find((m) => inMode(m)) ?? maps[0];
+  const modeMaps = maps.filter((m) => inMode(m));
+  const creator = mode === 'creator';
   const places = current.places;
   const setPlaces = useCallback((fn: (ps: Place[]) => Place[]) => {
     setMaps((ms) => ms.map((m) => (m.id === current.id ? { ...m, places: fn(m.places) } : m)));
   }, [current.id]);
   const [mapsOpen, setMapsOpen] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
-  const [buyerOpen, setBuyerOpen] = useState(false);
+  const [landingOpen, setLandingOpen] = useState(false);
+  // The buyer's view of a map for sale: free places open, the rest are lock pins.
+  const [buyerView, setBuyerView] = useState(false);
+  const [lockedOpen, setLockedOpen] = useState(false);
+  const [hlOpen, setHlOpen] = useState(false);
+  const [fitKey, setFitKey] = useState(0);
+  const fitAll = () => setTimeout(() => setFitKey(Date.now()), 50);
   // Several categories can be on at once; none selected means show everything.
   const [cats, setCats] = useState<CategoryId[]>([]);
   const toggleCat = (id: CategoryId) => setCats((cs) => (cs.includes(id) ? cs.filter((c) => c !== id) : [...cs, id]));
@@ -67,13 +81,33 @@ export default function App() {
       setFlyTo({ lat, lng, key: Date.now() });
     }
   };
-  const createMap = (name: string) => { const m = newMap(name); setMaps((ms) => [...ms, m]); switchMap(m.id); };
+  const createMap = (name: string) => { const m = { ...newMap(name), ...(creator ? { creator: true } : {}) }; setMaps((ms) => [...ms, m]); switchMap(m.id); };
+  const setMode = (md: AccountMode) => {
+    if (md === mode) return;
+    saveMode(md); setModeState(md);
+    setBuyerView(false); setLandingOpen(false); setLockedOpen(false); setHlOpen(false); setPending(undefined); setSellOpen(false); setMapsOpen(false);
+    const next = maps.find((m) => inMode(m, md));
+    if (next) switchMap(next.id);
+    else {
+      const m = { ...newMap(md === 'creator' ? 'My first map to sell' : 'My map'), ...(md === 'creator' ? { creator: true } : {}) };
+      setMaps((ms) => [...ms, m]); setMapId(m.id); setTripId(undefined); setActiveDay(undefined); setSelectedId(undefined); setCats([]);
+    }
+  };
+  const startHighlight = () => {
+    const m = { ...newMap(''), creator: true };
+    setMaps((ms) => [...ms, m]); setMapId(m.id); setTripId(undefined); setActiveDay(undefined); setSelectedId(undefined); setCats([]);
+    setBuyerView(false); setLandingOpen(false); setPending(undefined); setHlOpen(true);
+  };
+  const free = useMemo(() => freeIds(current), [current]);
+  const creatorName = current.listing?.creatorName || 'Creator';
+  const badge = useMemo(() => ({ letter: creatorName.replace('@', '')[0]?.toUpperCase() ?? 'C' }), [creatorName]);
   const renameMap = (id: string, name: string) => setMaps((ms) => ms.map((m) => (m.id === id ? { ...m, name } : m)));
   const deleteMap = (id: string) => {
     const rest = maps.filter((m) => m.id !== id);
-    const next = rest.length ? rest : [newMap('My map')];
+    const own = rest.filter((m) => inMode(m));
+    const next = own.length ? rest : [...rest, { ...newMap(creator ? 'My first map to sell' : 'My map'), ...(creator ? { creator: true } : {}) }];
     setMaps(next);
-    if (id === current.id) switchMap(next[0].id);
+    if (id === current.id) switchMap(next.filter((m) => inMode(m))[0].id);
   };
   const saveListing = (l: Listing) => setMaps((ms) => ms.map((m) => (m.id === current.id ? { ...m, listing: l } : m)));
 
@@ -234,9 +268,10 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="top">
+      <header className={'top' + (creator ? ' top--creator' : '')}>
         <div className="top__row">
           <div className="brand">Travel Maps</div>
+          <ModeSwitch mode={mode} onChange={setMode} />
           <button className="btn map-switch" onClick={() => setMapsOpen(true)} aria-haspopup="dialog">
             <span className="map-switch__name">{current.name}</span> <span aria-hidden="true">▾</span>
           </button>
@@ -265,10 +300,15 @@ export default function App() {
               </ul>
             )}
           </div>
-          <button className="btn btn--ghost" onClick={() => setPanel('import')}>
+          {creator ? (
+            <button className="btn btn--ghost" onClick={startHighlight}>
+              <Icon d="M12 4v12M6 10l6-6 6 6M4 20h16" /> <span className="hide-sm">Import highlight</span>
+            </button>
+          ) : <button className="btn btn--ghost" onClick={() => setPanel('import')}>
             <Icon d="M4 7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3zM10 9l5 3-5 3z" /> <span className="hide-sm">Import reel</span>
-          </button>
+          </button>}
         </div>
+        {creator && <CreatorStats map={current} />}
         <nav className="cats" aria-label="Categories">
           <button className={'cat' + (!cats.length ? ' cat--on' : '')} onClick={() => setCats([])} aria-pressed={!cats.length}>
             <span className="cat__icon" style={{ background: !cats.length ? '#0f766e' : '#ccfbf1', color: !cats.length ? '#fff' : '#0f766e' }}>
@@ -289,8 +329,10 @@ export default function App() {
         </nav>
       </header>
 
-      <main className={'stage' + (!plan && !pending && !batch && visible.length > 0 ? ' stage--list' : '')}>
-        <MapView places={batch ? [] : mapPlaces} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo}
+      <main className={'stage' + (!plan && !pending && !batch && !hlOpen && (visible.length > 0 || creator) ? ' stage--list' : '') + (hlOpen ? ' stage--hl' : '')}>
+        <MapView places={batch ? [] : buyerView ? places : mapPlaces}
+          lockMode={buyerView ? 'preview' : creator && current.listing ? 'creator' : undefined} freeSet={buyerView || (creator && current.listing) ? free : undefined}
+          onLocked={() => { setSelectedId(undefined); setLockedOpen(true); }} creatorBadge={buyerView ? badge : undefined} fitKey={fitKey} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo}
           preview={pending} onPreviewMove={(lat, lng) => setPending((p) => (p ? { ...p, lat, lng } : p))}
           bulk={batch ? bulkPins : undefined} bulkFocus={bulkFocus} onBulkSelect={setBulkFocus} />
         {sentElsewhere && <div className="toast" role="status">Sent the reels to your other Travel Maps tab. You can close this one.</div>}
@@ -302,9 +344,25 @@ export default function App() {
             onAdd={addBulk} onClose={() => { setBatch(undefined); setBulkFocus(undefined); }} />
         )}
         {storageWarning && <div className="toast" role="status">This browser is out of storage space, so recent changes may not be saved. Remove some photos to free space.</div>}
-        {pending && <ConfirmPlace pending={pending} onChange={setPending} onCancel={() => { rejectReelPin(); setPending(undefined); }} onAdd={confirmPending} />}
+        {pending && !hlOpen && <ConfirmPlace pending={pending} onChange={setPending} onCancel={() => { rejectReelPin(); setPending(undefined); }} onAdd={confirmPending} />}
 
-        {!plan && !pending && !batch && (
+        {buyerView && (
+          <div className="buyerbar" role="status">
+            <span><strong>Preview</strong><span className="hide-sm"> · what buyers see before they pay</span></span>
+            <button className="btn btn--small" onClick={() => { setBuyerView(false); setLandingOpen(true); }}>Landing page</button>
+            <button className="btn btn--small btn--dark" onClick={() => { setBuyerView(false); setLockedOpen(false); }}>Exit preview</button>
+          </div>
+        )}
+        {buyerView && lockedOpen && current.listing && <LockedSheet map={current} onUnlock={() => { setLockedOpen(false); setBuyerView(false); setLandingOpen(true); }} onClose={() => setLockedOpen(false)} />}
+        {hlOpen && (
+          <HighlightImport mapName={current.name} onRename={(n) => renameMap(current.id, n)} places={places} near={center}
+            pending={pending} onPending={setPending}
+            onPreview={(r) => { setPending({ name: r.name, lat: r.lat, lng: r.lng, address: r.address, category: r.category, source: 'search', photos: [] }); setFlyTo({ lat: r.lat, lng: r.lng, key: Date.now() }); }}
+            onAddPlace={(p) => { setPlaces((ps) => [...ps, { ...p, id: uid() }]); setPending(undefined); fitAll(); }}
+            onClose={() => { setHlOpen(false); fitAll(); if (!current.name.trim()) renameMap(current.id, 'Highlight map'); }} />
+        )}
+
+        {!plan && !pending && !batch && !buyerView && !hlOpen && !creator && (
           <div className="fabs">
             {trips.length > 0 && <button className="fab fab--light" onClick={() => setTripsOpen(true)}>My trips ({trips.length})</button>}
             <button className="fab" onClick={() => setPanel('plan')} disabled={!places.length}>
@@ -313,10 +371,15 @@ export default function App() {
           </div>
         )}
 
-        {!plan && !pending && !batch && visible.length > 0 && (
-          <PlaceList places={visible} selectedId={selectedId} onSelect={select} listRef={cardsRef} />
+        {!plan && !pending && !batch && !hlOpen && (visible.length > 0 || creator) && (
+          <PlaceList places={buyerView ? visible.filter((p) => free.has(p.id)) : visible} selectedId={selectedId} onSelect={select} listRef={cardsRef}
+            lockedCount={buyerView ? visible.filter((p) => !free.has(p.id)).length : 0} onLocked={() => { setSelectedId(undefined); setLockedOpen(true); }}
+            header={creator && !buyerView ? (
+              <Studio maps={modeMaps} currentId={current.id} onOpen={switchMap} onNewHighlight={startHighlight}
+                onSell={() => setSellOpen(true)} onLanding={() => setLandingOpen(true)} onPreview={() => { setBuyerView(true); setSelectedId(undefined); fitAll(); }} />
+            ) : undefined} />
         )}
-        {!plan && visible.length === 0 && <div className="empty">{kidsOnly && !cats.length ? 'No kids friendly places yet.' : cats.length ? `No ${cats.map((c) => categoryById(c).label.toLowerCase()).join(' or ')} places yet.` : 'No places yet.'} Search above to add one.</div>}
+        {!plan && visible.length === 0 && !creator && <div className="empty">{kidsOnly && !cats.length ? 'No kids friendly places yet.' : cats.length ? `No ${cats.map((c) => categoryById(c).label.toLowerCase()).join(' or ')} places yet.` : 'No places yet.'} Search above to add one.</div>}
 
 
         {panel === 'plan' && !plan && (
@@ -349,7 +412,7 @@ export default function App() {
         )}
         {/* The place card opens from the map or the list, and also over an open itinerary (pin or stop clicked). */}
         {selected && !pending && (
-          <PlaceDetail key={selected.id} place={selected} onUpdate={(patch) => update(selected.id, patch)} onRemove={() => remove(selected.id)} onClose={() => setSelectedId(undefined)} />
+          <PlaceDetail key={selected.id} place={selected} readOnly={buyerView} selling={creator && !buyerView} creatorName={current.creator ? creatorName : undefined} onUpdate={(patch) => update(selected.id, patch)} onRemove={() => remove(selected.id)} onClose={() => setSelectedId(undefined)} />
         )}
         {tripsOpen && (
           <TripsPanel
@@ -362,9 +425,9 @@ export default function App() {
 
         {mapsOpen && (
           <MapsPanel
-            maps={maps} currentId={current.id}
+            maps={modeMaps} currentId={current.id} creator={creator}
             onSwitch={switchMap} onCreate={createMap} onRename={renameMap} onDelete={deleteMap}
-            onSell={() => { setMapsOpen(false); setSellOpen(true); }}
+            onSell={() => { setMapsOpen(false); if (creator) setSellOpen(true); else setMode('creator'); }}
             onClose={() => setMapsOpen(false)}
           />
         )}
@@ -372,11 +435,16 @@ export default function App() {
           <SellPanel
             map={current}
             onSave={(l) => { saveListing(l); }}
-            onPreview={() => { setSellOpen(false); setBuyerOpen(true); }}
+            onPreview={() => { setSellOpen(false); setLandingOpen(true); }}
             onClose={() => setSellOpen(false)}
           />
         )}
-        {buyerOpen && <BuyerPreview map={current} onClose={() => setBuyerOpen(false)} onEdit={() => { setBuyerOpen(false); setSellOpen(true); }} />}
+        {landingOpen && current.listing && (
+          <LandingPage map={current} profile={{ name: creatorName }}
+            onPreview={() => { setLandingOpen(false); setBuyerView(true); setSelectedId(undefined); setPending(undefined); fitAll(); }}
+            onEdit={creator ? () => { setLandingOpen(false); setSellOpen(true); } : undefined}
+            onClose={() => setLandingOpen(false)} />
+        )}
 
         {panel === 'import' && (
           <ImportReel
