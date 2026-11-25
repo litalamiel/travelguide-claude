@@ -385,27 +385,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .bcard { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 85%; border-radius: 18px 18px 0 0; }
 }
 
-/* Map key (option A) */
-.mapkey { position: absolute; z-index: 4; right: 16px; top: 16px; width: 210px; max-height: calc(100% - 250px); overflow: auto; background: #fff; border-radius: 16px; box-shadow: var(--shadow); padding: 10px 10px 8px; }
-.mapkey__head { position: sticky; top: -10px; z-index: 1; background: #fff; display: flex; align-items: center; gap: 8px; padding: 2px 4px 6px; font-size: 13px; }
-.mapkey__head .muted { margin-left: auto; font-size: 12px; }
-.mapkey__close { border: none; background: var(--soft); border-radius: 8px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--ink); }
-.mapkey__list { list-style: none; margin: 0; padding: 0; }
-.mapkey__row { width: 100%; display: flex; align-items: center; gap: 8px; border: none; background: none; padding: 2px 4px; border-radius: 10px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; text-align: left; }
-.mapkey__row:hover { background: var(--soft); }
-.mapkey__row--on { background: var(--soft); }
-.mapkey__row--off { opacity: .4; }
-.mapkey__ic { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.mapkey__name { flex: 1; }
-.mapkey__n { color: var(--muted); font-weight: 400; font-size: 12px; }
-.mapkey__kids { border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; margin-top: 6px; padding-top: 8px; }
-.mapkey__all { width: 100%; margin-top: 6px; border: none; background: none; color: var(--accent); font-weight: 600; font-size: 12px; cursor: pointer; padding: 4px; }
-.mapkey__btn { position: absolute; z-index: 4; right: 16px; top: 16px; height: 40px; padding: 0 14px; border-radius: 20px; border: none; background: #fff; box-shadow: var(--shadow); font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--ink); }
-.switch { width: 34px; height: 20px; border-radius: 10px; background: #cbd5e1; position: relative; flex-shrink: 0; transition: background .15s; }
-.switch::after { content: ''; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: #fff; transition: left .15s; }
-.switch--on { background: var(--accent); }
-.switch--on::after { left: 16px; }
-
 /* Must do / Normal / If you have time */
 .prio { display: flex; flex-direction: column; gap: 8px; }
 .prio .field-label { margin: 0; }

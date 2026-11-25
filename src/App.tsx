@@ -8,7 +8,6 @@ import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } fro
 import { Itinerary, TripsPanel } from './Trips';
 import { arrangeMeals } from './timeline';
 import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, FlagTags, PlaceDetail } from './Place';
-import MapKey from './MapKey';
 import { englishFor, keyFrames } from './reel';
 import { shortcodeOf, smartGuess, teach, type LessonDraft } from './learn';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
@@ -283,7 +282,6 @@ export default function App() {
         <MapView places={batch ? [] : mapPlaces} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo}
           preview={pending} onPreviewMove={(lat, lng) => setPending((p) => (p ? { ...p, lat, lng } : p))}
           bulk={batch ? bulkPins : undefined} bulkFocus={bulkFocus} onBulkSelect={setBulkFocus} />
-        {!plan && !batch && !pending && !selected && <MapKey places={places} cats={cats} onToggle={(id) => { toggleCat(id); setTripId(undefined); }} kidsOnly={kidsOnly} onKids={setKidsOnly} />}
         {sentElsewhere && <div className="toast" role="status">Sent the reels to your other Travel Maps tab. You can close this one.</div>}
         {batch && (
           <BulkReview batch={batch} reels={bulkReader.reels} places={bulkReader.places} setPlaces={bulkReader.setPlaces} setReels={bulkReader.setReels}
