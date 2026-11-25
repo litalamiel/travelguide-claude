@@ -7,7 +7,8 @@ import { loadMaps, newMap, saveMaps } from './storage';
 import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } from './types';
 import { Itinerary, TripsPanel } from './Trips';
 import { arrangeMeals } from './timeline';
-import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, FlagTags, PlaceDetail } from './Place';
+import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, PlaceDetail } from './Place';
+import PlaceList from './PlaceList';
 import { englishFor, keyFrames } from './reel';
 import { shortcodeOf, smartGuess, teach, type LessonDraft } from './learn';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
@@ -104,7 +105,7 @@ export default function App() {
     setSelectedId(id);
     const p = places.find((x) => x.id === id);
     if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() });
-    requestAnimationFrame(() => cardsRef.current?.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }));
+    requestAnimationFrame(() => cardsRef.current?.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
   }, [places]);
 
   // Option A: a chosen result is previewed on the map first; it's saved only on "Add to map".
@@ -278,7 +279,7 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="stage">
+      <main className={'stage' + (!plan && !pending && !batch && visible.length > 0 ? ' stage--list' : '')}>
         <MapView places={batch ? [] : mapPlaces} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo}
           preview={pending} onPreviewMove={(lat, lng) => setPending((p) => (p ? { ...p, lat, lng } : p))}
           bulk={batch ? bulkPins : undefined} bulkFocus={bulkFocus} onBulkSelect={setBulkFocus} />
@@ -303,27 +304,7 @@ export default function App() {
         )}
 
         {!plan && !pending && !batch && visible.length > 0 && (
-          <div className="cards" ref={cardsRef}>
-            {visible.map((p) => {
-              const c = categoryById(p.category);
-              return (
-                <button key={p.id} data-id={p.id} className={'card' + (p.id === selectedId ? ' card--on' : '')} onClick={() => select(p.id)}>
-                  <span className="card__thumb" style={{ background: c.tint, color: c.color }}>
-                    {p.photos?.length ? <img src={p.photos[0]} alt="" /> : <Icon d={c.icon} size={28} />}
-                    {p.source === 'reel' && <span className="card__reel" aria-label="From a reel">▶</span>}
-                  </span>
-                  <span className="card__body">
-                    <span className="card__name">{p.name}</span>
-                    <span className="card__tags">
-                      <span className="tag" style={{ background: c.tint, color: c.color }}>{c.label}</span>
-                      <FlagTags place={p} />
-                    </span>
-                    <span className="card__src">{p.source === 'reel' ? 'From a reel' : p.source === 'sample' ? 'Sample place' : 'Added by search'}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <PlaceList places={visible} selectedId={selectedId} onSelect={select} listRef={cardsRef} />
         )}
         {!plan && visible.length === 0 && <div className="empty">{kidsOnly && !cats.length ? 'No kids friendly places yet.' : cats.length ? `No ${cats.map((c) => categoryById(c).label.toLowerCase()).join(' or ')} places yet.` : 'No places yet.'} Search above to add one.</div>}
 

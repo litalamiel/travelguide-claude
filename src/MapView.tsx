@@ -59,7 +59,10 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
       m.fire('routes:refresh');
     });
     map.current = m;
-    return () => m.remove();
+    // The places list beside the map can appear or hide, so follow the container's size, not just the window's.
+    const ro = new ResizeObserver(() => m.resize());
+    if (el.current) ro.observe(el.current);
+    return () => { ro.disconnect(); m.remove(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
