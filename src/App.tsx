@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MapView from './MapView';
 import { CATEGORIES, categoryById } from './categories';
-import { candidatesFromCaption, searchPlaces, type SearchResult } from './geocode';
+import { analyzeCaption, findCaptionPlace, searchPlaces, type SearchResult } from './geocode';
 import { daysFromTrip, planTrip, toTripDays, type PlanOptions } from './planner';
 import { loadMaps, newMap, saveMaps } from './storage';
 import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } from './types';
@@ -342,8 +342,9 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
   const findPlaces = async (text: string) => {
     setBusy(true);
     const out = [];
-    for (const phrase of candidatesFromCaption(text)) {
-      try { out.push({ phrase, matches: (await searchPlaces(phrase, near)).slice(0, 3) }); } catch { out.push({ phrase, matches: [] }); }
+    for (const p of analyzeCaption(text)) {
+      const phrase = p.from === 'pin' ? `📍 ${p.query}${p.area ? `, ${p.area}` : ''}` : p.query;
+      try { out.push({ phrase, matches: (await findCaptionPlace(p, near)).slice(0, 3) }); } catch { out.push({ phrase, matches: [] }); }
     }
     setFound(out);
     setBusy(false);
