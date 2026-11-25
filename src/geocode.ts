@@ -340,10 +340,11 @@ export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; ln
       let rs = (await searchPlaces(area ? `${v}, ${area}` : v, near, [], 10)).filter(inCountry);
       if (!rs.length && area) rs = (await searchPlaces(v, near, [], 10)).filter(inCountry);
       const ok = rs.filter((r) => nameHas(r.name, v) && !/^(highway|place|boundary):/.test(r.osm ?? ''))
-        .map((r) => ({ r, s: nameScore(r.name, p.query), t: tags ? tagRank(tags, r.osm) : 0 }))
-        .sort((a, b) => a.t - b.t || b.s - a.s);
+        // In the town the caption names ("Zillertal, Fügen" → Fügenberg), not a namesake elsewhere.
+        .map((r) => ({ r, s: nameScore(r.name, p.query), t: tags ? tagRank(tags, r.osm) : 0, a: !!area && keyWords(area).some((w) => norm(`${r.address} ${r.name}`).includes(w)) }))
+        .sort((a, b) => Number(b.a) - Number(a.a) || a.t - b.t || b.s - a.s);
       if (ok.length) {
-        const sure = ok.length === 1 || (ok[0].t < 99 && ok[0].t < ok[1].t);
+        const sure = ok.length === 1 || (ok[0].a && !ok[1].a) || (ok[0].a === ok[1].a && ok[0].t < 99 && ok[0].t < ok[1].t);
         const rsOut = label(ok.map((x) => x.r));
         if (sure) rsOut[0] = { ...rsOut[0], name: p.query };
         return { results: rsOut, confident: sure };
