@@ -228,6 +228,13 @@ export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; ln
   const tags = p.hint ? OSM_TAGS[p.hint] : undefined;
   const inCountry = (r: SearchResult) => !cc || !r.cc || r.cc === cc;
   const label = (rs: SearchResult[]) => (p.hint ? rs.map((r) => ({ ...r, category: p.hint! })) : rs);
+  // When we're sure of the place but the map has an older or longer name, use the name the creator wrote
+  // (the map says "Leading Family Hotel & Resort Dachsteinkönig", the hotel is now "Familux Resort Dachsteinkönig").
+  const named_ = (xs: { r: SearchResult; s: number }[], sure: boolean) => {
+    const rs = label(xs.map((x) => x.r));
+    if (sure && xs[0].s < 1 && p.from === 'pin') rs[0] = { ...rs[0], name: p.query };
+    return rs;
+  };
   const rank = (rs: SearchResult[]) => rs.filter(inCountry)
     .map((r) => ({ r, s: nameScore(r.name, p.query), t: tags ? tagRank(tags, r.osm) : 0 }))
     .filter((x) => x.s >= 0.5)
@@ -238,18 +245,18 @@ export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; ln
   if (tags) {
     let typed = rank(await searchPlaces(q, near, tags, 10));
     if (!typed.length && area) typed = rank(await searchPlaces(p.query, near, tags, 10));
-    if (typed.length) return { results: label(typed.map((x) => x.r)), confident: clear(typed) };
+    if (typed.length) return { results: named_(typed, clear(typed)), confident: clear(typed) };
   }
   // 2. Any place with a matching name (streets and plain buildings left out).
   let all = (await searchPlaces(q, near, [], 10)).filter(inCountry);
   if (!all.length && area) all = (await searchPlaces(p.query, near, [], 10)).filter(inCountry);
   const places = all.filter((r) => !NOT_A_PLACE.test(r.osm ?? ''));
   const named = rank(places);
-  if (named.length && (!tags || named[0].t < 99)) return { results: label(named.map((x) => x.r)), confident: clear(named) };
+  if (named.length && (!tags || named[0].t < 99)) return { results: named_(named, clear(named)), confident: clear(named) };
 
   // 2b. Resorts are often mapped as a site (landuse or building) whose name says what it is.
   const sites = rank(all.filter((r) => /^(landuse|building)/.test(r.osm ?? '') && p.hint && hintFrom(r.name) === p.hint));
-  if (sites.length) return { results: label(sites.map((x) => x.r)), confident: clear(sites) };
+  if (sites.length) return { results: named_(sites, clear(sites)), confident: clear(sites) };
 
   // 3. The name points to an area: look for that kind of place with a shorter name nearby.
   if (tags && all.length) {
