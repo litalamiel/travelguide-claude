@@ -9,18 +9,22 @@ export interface Category {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: 'eat', label: 'Eat', color: '#b91c1c', tint: '#fee2e2', icon: 'M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 2-2 6 0 8v10' },
+  { id: 'eat', label: 'Restaurant', color: '#b91c1c', tint: '#fee2e2', icon: 'M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 2-2 6 0 8v10' },
   { id: 'coffee', label: 'Coffee', color: '#92400e', tint: '#fef3c7', icon: 'M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1a3 3 0 0 1 0 6h-1' },
-  { id: 'drinks', label: 'Drinks', color: '#6d28d9', tint: '#ede9fe', icon: 'M5 4h14l-7 8zM12 12v8M8 20h8' },
+  { id: 'drinks', label: 'Bar', color: '#6d28d9', tint: '#ede9fe', icon: 'M5 4h14l-7 8zM12 12v8M8 20h8' },
   { id: 'sights', label: 'Sights', color: '#1d4ed8', tint: '#dbeafe', icon: 'M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6' },
   { id: 'views', label: 'Views', color: '#0e7490', tint: '#cffafe', icon: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z' },
-  { id: 'nature', label: 'Nature', color: '#15803d', tint: '#dcfce7', icon: 'M12 3l7 12H5zM12 15v6' },
+  { id: 'nature', label: 'Outdoor', color: '#15803d', tint: '#dcfce7', icon: 'M3 20l6-11 4 6 3-4 5 9zM9 9l1.5-4' },
   { id: 'beaches', label: 'Beaches', color: '#a16207', tint: '#fef9c3', icon: 'M2 20c3-2 5-2 8 0s5 2 8 0M12 4a6 6 0 0 1 6 6H6a6 6 0 0 1 6-6zM12 10v7' },
   { id: 'museums', label: 'Museums', color: '#be185d', tint: '#fce7f3', icon: 'M3 9l9-5 9 5M5 9v9M10 9v9M14 9v9M19 9v9M3 20h18' },
   { id: 'shopping', label: 'Shopping', color: '#475569', tint: '#e2e8f0', icon: 'M6 7h12l-1 13H7zM9 7a3 3 0 0 1 6 0' },
-  { id: 'experiences', label: 'Do', color: '#c2410c', tint: '#ffedd5', icon: 'M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z' },
+  { id: 'experiences', label: 'Activity', color: '#c2410c', tint: '#ffedd5', icon: 'M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4zM15 7v10' },
   { id: 'stay', label: 'Hotels', color: '#0f172a', tint: '#e2e8f0', icon: 'M3 18V8M3 14h18v4M21 14v-3a3 3 0 0 0-3-3h-7v6M7 11a1.5 1.5 0 1 0 0 .01' },
 ];
+
+/** Kids friendly is a tag that can sit on a place of any category. */
+export const KIDS = { label: 'Kids friendly', color: '#b45309', tint: '#fef3c7', badge: '#f59e0b', icon: 'M12 3a5 5 0 0 1 5 5c0 3.5-3 6-5 6s-5-2.5-5-6a5 5 0 0 1 5-5zM12 14v2M12 16c-1.5 2 1.5 3 0 5' };
+export const STAR = 'M12 2l3 7 7 .6-5.3 4.7 1.6 7.2L12 17.8 5.7 21.5l1.6-7.2L2 9.6 9 9z';
 
 export const categoryById = (id: CategoryId) => CATEGORIES.find((c) => c.id === id) ?? CATEGORIES[3];
 

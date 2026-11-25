@@ -269,7 +269,9 @@ function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, ed
                       <div className={'tl__card' + (food ? ' tl__card--food' : '')}>
                         <button className="tl__name" onClick={() => onSelectPlace(p.id)}>
                           <strong>{p.name}</strong>
-                          {p.mustSee && <span className="tag tag--must">Must see</span>}
+                          {p.mustSee && <span className="tag tag--must">★ Must do</span>}
+                          {p.ifTime && <span className="tag tag--time">If you have time</span>}
+                          {p.kids && <span className="tag tag--kids">Kids</span>}
                           <small style={food ? { color: '#b91c1c', fontWeight: 700 } : undefined}>{r.meal ? `${r.meal} · ` : ''}{c.label} · {r.minutes < 60 ? `${r.minutes} min` : `${Math.round(r.minutes / 30) / 2} h`}</small>
                         </button>
                         {editing && <span className="stop__tools">

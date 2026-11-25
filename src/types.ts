@@ -13,6 +13,8 @@ export interface Place {
   mustSee?: boolean;
   /** "If you have time": only added to a day that has room and passes nearby. */
   ifTime?: boolean;
+  /** Kids friendly, on top of the category. */
+  kids?: boolean;
   source: 'search' | 'reel' | 'sample';
   reelUrl?: string;
   /** User's own photos, or frames/cover from the reel. Stored as small JPEG data URLs. */

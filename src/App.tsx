@@ -7,7 +7,8 @@ import { loadMaps, newMap, saveMaps } from './storage';
 import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } from './types';
 import { Itinerary, TripsPanel } from './Trips';
 import { arrangeMeals } from './timeline';
-import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, PlaceDetail } from './Place';
+import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, FlagTags, PlaceDetail } from './Place';
+import MapKey from './MapKey';
 import { englishFor, keyFrames } from './reel';
 import { shortcodeOf, smartGuess, teach, type LessonDraft } from './learn';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
@@ -95,7 +96,8 @@ export default function App() {
     return c;
   }, [places]);
 
-  const visible = cats.length ? places.filter((p) => cats.includes(p.category)) : places;
+  const [kidsOnly, setKidsOnly] = useState(false);
+  const visible = places.filter((p) => (!cats.length || cats.includes(p.category)) && (!kidsOnly || p.kids));
   const selected = places.find((p) => p.id === selectedId);
   const cardsRef = useRef<HTMLDivElement>(null);
 
@@ -281,6 +283,7 @@ export default function App() {
         <MapView places={batch ? [] : mapPlaces} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo}
           preview={pending} onPreviewMove={(lat, lng) => setPending((p) => (p ? { ...p, lat, lng } : p))}
           bulk={batch ? bulkPins : undefined} bulkFocus={bulkFocus} onBulkSelect={setBulkFocus} />
+        {!plan && !batch && !pending && !selected && <MapKey places={places} cats={cats} onToggle={(id) => { toggleCat(id); setTripId(undefined); }} kidsOnly={kidsOnly} onKids={setKidsOnly} />}
         {sentElsewhere && <div className="toast" role="status">Sent the reels to your other Travel Maps tab. You can close this one.</div>}
         {batch && (
           <BulkReview batch={batch} reels={bulkReader.reels} places={bulkReader.places} setPlaces={bulkReader.setPlaces} setReels={bulkReader.setReels}
@@ -315,7 +318,7 @@ export default function App() {
                     <span className="card__name">{p.name}</span>
                     <span className="card__tags">
                       <span className="tag" style={{ background: c.tint, color: c.color }}>{c.label}</span>
-                      {p.mustSee && <span className="tag tag--must">Must see</span>}
+                      <FlagTags place={p} />
                     </span>
                     <span className="card__src">{p.source === 'reel' ? 'From a reel' : p.source === 'sample' ? 'Sample place' : 'Added by search'}</span>
                   </span>
@@ -324,7 +327,7 @@ export default function App() {
             })}
           </div>
         )}
-        {!plan && visible.length === 0 && <div className="empty">{cats.length ? `No ${cats.map((c) => categoryById(c).label.toLowerCase()).join(' or ')} places yet.` : 'No places yet.'} Search above to add one.</div>}
+        {!plan && visible.length === 0 && <div className="empty">{kidsOnly && !cats.length ? 'No kids friendly places yet.' : cats.length ? `No ${cats.map((c) => categoryById(c).label.toLowerCase()).join(' or ')} places yet.` : 'No places yet.'} Search above to add one.</div>}
 
         {selected && !plan && !pending && (
           <PlaceDetail key={selected.id} place={selected} onUpdate={(patch) => update(selected.id, patch)} onRemove={() => remove(selected.id)} onClose={() => setSelectedId(undefined)} />
@@ -427,7 +430,7 @@ function PlanForm({ count, onPlan, onCancel }: { count: number; onPlan: (o: Plan
           </label>
         ))}
       </fieldset>
-      <label className="check"><input type="checkbox" checked={onlyMustSee} onChange={(e) => setOnlyMustSee(e.target.checked)} /> Only must-see places</label>
+      <label className="check"><input type="checkbox" checked={onlyMustSee} onChange={(e) => setOnlyMustSee(e.target.checked)} /> Only must-do places</label>
       <div className="row">
         <button className="btn btn--ghost" onClick={onCancel}>Cancel</button>
         <button className="btn btn--primary" onClick={() => onPlan({ nights, maxDriveHours: drive, pace, onlyMustSee })}>Build itinerary</button>

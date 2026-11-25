@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { CATEGORIES, categoryById } from './categories';
+import { CATEGORIES, KIDS, categoryById } from './categories';
 import { fileToDataUrl } from './photos';
 import type { CategoryId, PendingPlace, Place } from './types';
 import { langName, looksNonEnglish, translateToEnglish } from './reel';
@@ -8,6 +8,39 @@ function Svg({ d, size = 18 }: { d: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
 }
 
+type Flags = Pick<Place, 'mustSee' | 'ifTime' | 'kids'>;
+
+/** Must do / Normal / If you have time, plus the Kids friendly tag. */
+export function PriorityControl({ value, onChange }: { value: Flags; onChange: (patch: Flags) => void }) {
+  const cur = value.mustSee ? 'must' : value.ifTime ? 'time' : 'normal';
+  const opts = [
+    { id: 'must', label: '★ Must do / see', patch: { mustSee: true, ifTime: false } },
+    { id: 'normal', label: 'Normal', patch: { mustSee: false, ifTime: false } },
+    { id: 'time', label: 'If you have time', patch: { mustSee: false, ifTime: true } },
+  ];
+  return (
+    <div className="prio">
+      <div className="field-label">In the itinerary</div>
+      <div className="seg" role="radiogroup" aria-label="Priority in the itinerary">
+        {opts.map((o) => (
+          <button key={o.id} role="radio" aria-checked={cur === o.id} className={'seg__opt' + (cur === o.id ? ` seg__opt--${o.id}` : '')} onClick={() => onChange(o.patch)}>{o.label}</button>
+        ))}
+      </div>
+      <button className={'chip chip--kids' + (value.kids ? ' chip--kids-on' : '')} aria-pressed={!!value.kids} onClick={() => onChange({ kids: !value.kids })}>
+        <Svg d={KIDS.icon} size={16} /> Kids friendly{value.kids ? ' ✓' : ''}
+      </button>
+    </div>
+  );
+}
+
+/** Small tags for priority and Kids friendly. */
+export function FlagTags({ place }: { place: Flags }) {
+  return <>
+    {place.mustSee && <span className="tag tag--must">★ Must do</span>}
+    {place.ifTime && <span className="tag tag--time">If you have time</span>}
+    {place.kids && <span className="tag tag--kids">Kids friendly</span>}
+  </>;
+}
 export function Carousel({ photos, alt }: { photos: string[]; alt: string }) {
   const [i, setI] = useState(0);
   if (!photos.length) return null;
@@ -147,7 +180,7 @@ export function ConfirmPlace({ pending, onChange, onCancel, onAdd }: { pending: 
       </div>
       <div className="field-label">{fromReel ? 'Photos from the reel and yours' : 'Your photos'}</div>
       <PhotoPicker photos={pending.photos ?? []} onChange={(photos) => onChange({ ...pending, photos })} />
-      <label className="check"><input type="checkbox" checked={!!pending.mustSee} onChange={(e) => onChange({ ...pending, mustSee: e.target.checked })} /> Must see</label>
+      <PriorityControl value={pending} onChange={(patch) => onChange({ ...pending, ...patch })} />
       <div className="row">
         <button className="btn" onClick={onCancel}>Not this one</button>
         <button className="btn btn--primary" onClick={onAdd}>Add to map</button>
@@ -169,18 +202,20 @@ export function PlaceDetail({ place, onUpdate, onRemove, onClose }: { place: Pla
         <span className="avatar" style={{ background: c.tint, color: c.color }}><Svg d={c.icon} /></span>
         <span>
           <strong>{place.source === 'sample' ? 'Sample place' : 'Added by you'}</strong>
-          <small>{c.label}{place.mustSee ? ' · Must see' : ''}{place.visited ? ' · Visited' : ''}</small>
+          <small>{c.label}{place.visited ? ' · Visited' : ''}</small>
         </span>
       </div>}
       {place.source === 'reel' && (
         <div className="card__tags">
           <span className="tag" style={{ background: c.tint, color: c.color }}>{c.label}</span>
-          {place.mustSee && <span className="tag tag--must">Must see</span>}
+          <FlagTags place={place} />
           {place.visited && <span className="tag">Visited</span>}
         </div>
       )}
       <Carousel photos={place.photos ?? []} alt={place.name} />
       {place.reel && <CaptionBlock reel={place.reel} onSave={(patch) => onUpdate({ reel: { ...place.reel, ...patch } })} />}
+      {place.source !== 'reel' && (place.mustSee || place.ifTime || place.kids) && <div className="card__tags"><FlagTags place={place} /></div>}
+      <PriorityControl value={place} onChange={(patch) => onUpdate(patch)} />
       <label className="field">{place.source === 'reel' ? 'My notes about this reel' : 'My notes'}
         <textarea rows={2} value={place.note ?? ''} onChange={(e) => onUpdate({ note: e.target.value })} placeholder={place.source === 'reel' ? 'e.g. order the octopus, go before sunset, book 2 weeks ahead' : 'e.g. go early, book ahead'} />
       </label>
@@ -191,7 +226,6 @@ export function PlaceDetail({ place, onUpdate, onRemove, onClose }: { place: Pla
               {CATEGORIES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
             </select>
           </label>
-          <label className="check"><input type="checkbox" checked={!!place.mustSee} onChange={(e) => onUpdate({ mustSee: e.target.checked })} /> Must see</label>
           <div className="field-label">Photos</div>
           <PhotoPicker photos={place.photos ?? []} onChange={(photos) => onUpdate({ photos })} />
           {confirmRemove ? (

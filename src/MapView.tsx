@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import type { CategoryId, DayPlan, PendingPlace, Place } from './types';
-import { categoryById } from './categories';
+import { KIDS, STAR, categoryById } from './categories';
 
 // Free OpenStreetMap vector tiles from OpenFreeMap — no API key, live and zoomable.
 // To switch to Google Maps later, replace this component (see README).
@@ -74,13 +74,15 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
       const stop = dayIndex >= 0 ? plan![dayIndex].places.findIndex((q) => q.id === p.id) + 1 : 0;
       // MapLibre sets `transform` on the marker element, so the rotated teardrop lives in a child.
       const btn = document.createElement('button');
-      btn.className = 'pin' + (p.id === selectedId ? ' pin--selected' : '') + (plan && activeDay && dayIndex + 1 !== activeDay ? ' pin--dim' : '');
-      btn.setAttribute('aria-label', `${p.name}, ${c.label}`);
+      btn.className = 'pin' + (p.ifTime && !p.mustSee ? ' pin--maybe' : '') + (p.id === selectedId ? ' pin--selected' : '') + (plan && activeDay && dayIndex + 1 !== activeDay ? ' pin--dim' : '');
+      btn.setAttribute('aria-label', `${p.name}, ${c.label}${p.mustSee ? ', must do' : p.ifTime ? ', if you have time' : ''}${p.kids ? ', kids friendly' : ''}`);
       const color = plan && dayIndex >= 0 ? DAY_COLORS[dayIndex % DAY_COLORS.length] : c.color;
       const inner = stop
         ? `<span class="pin__num">${stop}</span>`
         : `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg>`;
       btn.innerHTML = `<span class="pin__shape" style="background:${color}"></span><span class="pin__inner">${inner}</span>` +
+        (p.mustSee ? `<span class="pin__star"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="#fff"><path d="${STAR}"/></svg></span>` : '') +
+        (p.kids ? `<span class="pin__kids"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="${KIDS.icon}"/></svg></span>` : '') +
         (p.source === 'reel' ? (p.photos?.[0] ? `<span class="pin__badge" style="background-image:url('${p.photos[0]}')"></span>` : '<span class="pin__badge pin__badge--play">▶</span>') : '');
       btn.addEventListener('click', (e) => { e.stopPropagation(); onSelect(p.id); });
       return new maplibregl.Marker({ element: btn, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(m);
