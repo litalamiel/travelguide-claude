@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { CATEGORIES, categoryById } from './categories';
 import { fileToDataUrl } from './photos';
 import type { CategoryId, PendingPlace, Place } from './types';
+import { langName, looksNonEnglish, translateToEnglish } from './reel';
 
 function Svg({ d, size = 18 }: { d: string; size?: number }) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d={d} /></svg>;
@@ -21,6 +22,66 @@ export function Carousel({ photos, alt }: { photos: string[]; alt: string }) {
           <span className="carousel__count">{(i % n) + 1} / {n}</span>
         </>
       )}
+    </div>
+  );
+}
+
+type Reel = NonNullable<Place['reel']>;
+
+/** Creator's picture, name and @handle (links to their Instagram profile). */
+export function CreatorHeader({ reel, reelUrl }: { reel: Reel; reelUrl?: string }) {
+  const handle = reel.author;
+  return (
+    <div className="creator">
+      {reel.avatar ? <img className="creator__avatar" src={reel.avatar} alt="" /> : <span className="creator__avatar creator__avatar--letter">{(reel.authorName ?? handle ?? '?')[0].toUpperCase()}</span>}
+      <span className="creator__text">
+        <strong>{reel.authorName ?? (handle ? `@${handle}` : 'Instagram creator')}</strong>
+        {handle && <a href={`https://www.instagram.com/${handle}/`} target="_blank" rel="noreferrer">@{handle} on Instagram ↗</a>}
+      </span>
+      {reelUrl && <a className="btn btn--small creator__reel" href={reelUrl} target="_blank" rel="noreferrer">Watch reel ↗</a>}
+    </div>
+  );
+}
+
+/** Caption with an offer to translate it to English and save the English version. */
+export function CaptionBlock({ reel, onSave }: { reel: Reel; onSave: (patch: Partial<Reel>) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [draft, setDraft] = useState<{ text: string; lang?: string }>();
+  const [showOriginal, setShowOriginal] = useState(false);
+  const caption = reel.caption ?? '';
+  if (!caption) return null;
+  const translated = !!reel.captionOriginal;
+  const offer = !translated && !draft && looksNonEnglish(caption);
+  const translate = async () => {
+    setBusy(true); setErr('');
+    try { setDraft(await translateToEnglish(caption)); } catch (e) { setErr((e as Error).message); }
+    setBusy(false);
+  };
+  return (
+    <div className="captionblock">
+      {draft ? (
+        <>
+          <div className="captionblock__banner">English translation from {langName(draft.lang)}. Check it, then save.</div>
+          <p className="detail__caption">{draft.text}</p>
+          <div className="row">
+            <button className="btn btn--small btn--primary" onClick={() => { onSave({ caption: draft.text, captionOriginal: caption, captionLang: draft.lang }); setDraft(undefined); }}>Save in English</button>
+            <button className="btn btn--small" onClick={() => setDraft(undefined)}>Keep original</button>
+          </div>
+        </>
+      ) : (
+        <p className="detail__caption">{showOriginal && reel.captionOriginal ? reel.captionOriginal : caption}</p>
+      )}
+      {offer && (
+        <div className="captionblock__banner">
+          <span>This caption isn’t in English.</span>
+          <button className="btn btn--small" onClick={translate} disabled={busy}>{busy ? 'Translating…' : 'Translate to English'}</button>
+        </div>
+      )}
+      {translated && !draft && (
+        <button className="link-btn" onClick={() => setShowOriginal(!showOriginal)}>{showOriginal ? 'Show English' : `Show original (${langName(reel.captionLang)})`}</button>
+      )}
+      {err && <p className="warn small">{err}</p>}
     </div>
   );
 }
@@ -102,20 +163,27 @@ export function PlaceDetail({ place, onUpdate, onRemove, onClose }: { place: Pla
   return (
     <aside className="detail" aria-label={`${place.name} details`}>
       <button className="icon-btn detail__close" aria-label="Close" onClick={onClose}><Svg d="M6 6l12 12M18 6L6 18" size={20} /></button>
+      {place.source === 'reel' && <CreatorHeader reel={place.reel ?? {}} reelUrl={place.reelUrl} />}
       <h2 className="detail__title">{place.name}</h2>
-      <div className="detail__source">
-        <span className="avatar" style={{ background: place.source === 'reel' ? '#0f766e' : c.tint, color: place.source === 'reel' ? '#fff' : c.color }}>
-          {place.source === 'reel' ? (place.reel?.author?.[0]?.toUpperCase() ?? '▶') : <Svg d={c.icon} />}
-        </span>
+      {place.source !== 'reel' && <div className="detail__source">
+        <span className="avatar" style={{ background: c.tint, color: c.color }}><Svg d={c.icon} /></span>
         <span>
-          <strong>{place.source === 'reel' ? (place.reel?.author ? `@${place.reel.author}` : 'From a reel') : place.source === 'sample' ? 'Sample place' : 'Added by you'}</strong>
+          <strong>{place.source === 'sample' ? 'Sample place' : 'Added by you'}</strong>
           <small>{c.label}{place.mustSee ? ' · Must see' : ''}{place.visited ? ' · Visited' : ''}</small>
         </span>
-      </div>
+      </div>}
+      {place.source === 'reel' && (
+        <div className="card__tags">
+          <span className="tag" style={{ background: c.tint, color: c.color }}>{c.label}</span>
+          {place.mustSee && <span className="tag tag--must">Must see</span>}
+          {place.visited && <span className="tag">Visited</span>}
+        </div>
+      )}
       <Carousel photos={place.photos ?? []} alt={place.name} />
-      {place.reel?.caption && <p className="detail__caption">{place.reel.caption}</p>}
-      {place.reelUrl && <a href={place.reelUrl} target="_blank" rel="noreferrer">Watch the reel on Instagram ↗</a>}
-      {place.note && !editing && <p className="small">{place.note}</p>}
+      {place.reel && <CaptionBlock reel={place.reel} onSave={(patch) => onUpdate({ reel: { ...place.reel, ...patch } })} />}
+      <label className="field">{place.source === 'reel' ? 'My notes about this reel' : 'My notes'}
+        <textarea rows={2} value={place.note ?? ''} onChange={(e) => onUpdate({ note: e.target.value })} placeholder={place.source === 'reel' ? 'e.g. order the octopus, go before sunset, book 2 weeks ahead' : 'e.g. go early, book ahead'} />
+      </label>
       {editing ? (
         <div className="detail__edit">
           <label className="field">Category
@@ -124,9 +192,6 @@ export function PlaceDetail({ place, onUpdate, onRemove, onClose }: { place: Pla
             </select>
           </label>
           <label className="check"><input type="checkbox" checked={!!place.mustSee} onChange={(e) => onUpdate({ mustSee: e.target.checked })} /> Must see</label>
-          <label className="field">Your note
-            <input value={place.note ?? ''} onChange={(e) => onUpdate({ note: e.target.value })} placeholder="e.g. go early, book ahead" />
-          </label>
           <div className="field-label">Photos</div>
           <PhotoPicker photos={place.photos ?? []} onChange={(photos) => onUpdate({ photos })} />
           {confirmRemove ? (

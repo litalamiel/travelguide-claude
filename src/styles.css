@@ -291,3 +291,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dayview__edit { margin-left: auto; }
 .tl__card .stop__tools { flex-basis: 100%; }
 .tl__night select { color: var(--ink); background: #fff; }
+
+/* Reel creator, caption translation */
+.creator { display: flex; gap: 10px; align-items: center; padding-right: 44px; }
+.detail .creator { padding-right: 48px; }
+.caption-box .creator { padding-right: 0; }
+.creator__avatar { width: 44px; height: 44px; border-radius: 22px; object-fit: cover; flex-shrink: 0; border: 2px solid #fff; box-shadow: 0 0 0 2px #e1306c; }
+.creator__avatar--letter { display: flex; align-items: center; justify-content: center; background: #0f766e; color: #fff; font-weight: 700; }
+.creator__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.creator__text strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.creator__text a { font-size: 13px; color: var(--accent); text-decoration: none; }
+.creator__reel { flex-shrink: 0; }
+.captionblock { display: flex; flex-direction: column; gap: 8px; }
+.captionblock__banner { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #eff6ff; color: #1e3a8a; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-weight: 600; }
+.caption-box .carousel { max-height: 300px; aspect-ratio: 4 / 5; align-self: center; width: min(240px, 100%); }
+.detail { overflow: auto; }
+.detail > * { flex-shrink: 0; }
+@media (max-width: 720px) { .detail .carousel { height: 220px; aspect-ratio: auto; } }

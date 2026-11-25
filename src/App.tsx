@@ -7,7 +7,8 @@ import { loadMaps, newMap, saveMaps } from './storage';
 import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } from './types';
 import { Itinerary, TripsPanel } from './Trips';
 import { arrangeMeals } from './timeline';
-import { ConfirmPlace, PlaceDetail } from './Place';
+import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, PlaceDetail } from './Place';
+import { keyFrames } from './reel';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -284,7 +285,7 @@ export default function App() {
           <ImportReel
             near={center}
             onClose={() => setPanel('none')}
-            onAdd={(r, url, reel, photos) => { setPanel('none'); preview(r, { source: 'reel', reelUrl: url, reel, photos }); }}
+            onAdd={(r, url, reel, photos, note) => { setPanel('none'); preview(r, { source: 'reel', reelUrl: url, reel, photos, note: note || undefined }); }}
           />
         )}
       </main>
@@ -328,16 +329,21 @@ function PlanForm({ count, onPlan, onCancel }: { count: number; onPlan: (o: Plan
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 const isReelLink = (u: string) => /instagram\.com\/(?:[\w.]+\/)?(?:reels?|p|tv)\/[\w-]{5,}/i.test(u);
 
-function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string, reel: { author?: string; caption?: string }, photos: string[]) => void }) {
-  const [frames, setFrames] = useState<string[]>([]);
+type ReelInfo = NonNullable<Place['reel']>;
+
+function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string, reel: ReelInfo, photos: string[], note: string) => void }) {
   const [url, setUrl] = useState('');
-  const [caption, setCaption] = useState('');
-  const [author, setAuthor] = useState('');
+  const [reel, setReel] = useState<ReelInfo>({});
+  const [images, setImages] = useState<string[]>([]);
+  const [frames, setFrames] = useState<string[]>([]);
+  const [framesState, setFramesState] = useState<'none' | 'loading' | 'done' | 'failed'>('none');
+  const [note, setNote] = useState('');
   const [status, setStatus] = useState<'idle' | 'reading' | 'read' | 'failed'>('idle');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<{ phrase: string; matches: SearchResult[] }[]>();
   const [added, setAdded] = useState<Set<string>>(new Set());
+  const caption = reel.caption ?? '';
 
   const findPlaces = async (text: string) => {
     setBusy(true);
@@ -350,10 +356,10 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
     setBusy(false);
   };
 
-  // Read the caption automatically as soon as a reel link is pasted.
+  // Read the reel automatically as soon as a link is pasted: caption, creator, cover, key frames.
   useEffect(() => {
     const link = url.trim();
-    setFound(undefined);
+    setFound(undefined); setFrames([]); setFramesState('none');
     if (!isReelLink(link)) { setStatus('idle'); setError(''); return; }
     let cancelled = false;
     const t = setTimeout(async () => {
@@ -363,8 +369,15 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
         const data = await r.json().catch(() => ({}));
         if (cancelled) return;
         if (!r.ok || !data.caption) throw new Error(data.error || 'Couldn’t read this reel automatically.');
-        setCaption(data.caption); setAuthor(data.author ?? ''); setFrames(Array.isArray(data.images) ? data.images : []); setStatus('read');
+        setReel({ caption: data.caption, author: data.author, authorName: data.authorName, avatar: data.avatar });
+        setImages(Array.isArray(data.images) ? data.images : []);
+        setStatus('read');
         findPlaces(data.caption);
+        if (data.video) {
+          setFramesState('loading');
+          keyFrames(data.video, 3).then((f) => { if (!cancelled) { setFrames(f); setFramesState(f.length ? 'done' : 'failed'); } })
+            .catch(() => { if (!cancelled) setFramesState('failed'); });
+        }
       } catch (e) {
         if (cancelled) return;
         setStatus('failed');
@@ -374,6 +387,8 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
     return () => { cancelled = true; clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
+
+  const gallery = [...images, ...frames];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -386,25 +401,31 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
           <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.instagram.com/reel/…" autoFocus />
         </label>
         {url.trim() && !isReelLink(url.trim()) && <p className="warn small">That doesn’t look like an Instagram reel link.</p>}
-        {status === 'reading' && <p className="muted small">Reading the reel’s caption…</p>}
+        {status === 'reading' && <p className="muted small">Reading the reel…</p>}
         {status === 'read' && (
           <div className="caption-box">
-            <div className="small"><strong>Caption{author ? ` by @${author}` : ''}</strong></div>
-            {frames.length > 0 && <div className="frames">{frames.map((f, i) => <img key={i} src={f} alt={`Reel image ${i + 1}`} />)}</div>}
-            <p className="caption-text">{caption}</p>
+            <CreatorHeader reel={reel} reelUrl={url.trim()} />
+            {gallery.length > 0 && <Carousel photos={gallery} alt="Reel" />}
+            {framesState === 'loading' && <p className="muted small">Taking key frames from the video…</p>}
+            {framesState === 'failed' && <p className="muted small">Couldn’t take frames from this video, so only the cover is shown.</p>}
+            <CaptionBlock reel={reel} onSave={(patch) => { const next = { ...reel, ...patch }; setReel(next); findPlaces(`${next.caption ?? ''}\n${next.captionOriginal ?? ''}`); }} />
           </div>
         )}
         {status === 'failed' && (
           <>
             <p className="warn small">{error} You can paste the caption below instead.</p>
             <label className="field">Caption
-              <textarea rows={4} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="📍 Pastéis de Belém — best custard tarts in Lisbon…" />
+              <textarea rows={4} value={caption} onChange={(e) => setReel({ ...reel, caption: e.target.value })} placeholder="📍 Pastéis de Belém — best custard tarts in Lisbon…" />
             </label>
             <button className="btn btn--primary" onClick={() => findPlaces(caption)} disabled={busy || caption.trim().length < 3}>{busy ? 'Finding places…' : 'Find places'}</button>
           </>
         )}
+        {(status === 'read' || status === 'failed') && (
+          <label className="field">My notes about this reel
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. order the octopus, go before sunset" />
+          </label>
+        )}
         {busy && status === 'read' && <p className="muted small">Finding places on the map…</p>}
-        <p className="muted small">The app reads the caption by itself. Listening to the voiceover and checking the video frames come next.</p>
         {found && (
           <div className="found">
             {found.length === 0 && <p className="muted">No place names found in the caption.</p>}
@@ -417,8 +438,8 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
                   return (
                     <div key={i} className="found__match">
                       <span className="dot" style={{ background: categoryById(m.category).color }} />
-                      <span className="result__text"><strong>{m.name}</strong><small>{m.address}</small></span>
-                      <button className="btn btn--small" disabled={added.has(key)} onClick={() => { setAdded(new Set(added).add(key)); onAdd(m, url, { author: author || undefined, caption: caption || undefined }, frames); }}>Show on map</button>
+                      <span className="result__text"><strong>{m.name}</strong><small>{categoryById(m.category).label} · {m.address}</small></span>
+                      <button className="btn btn--small" disabled={added.has(key)} onClick={() => { setAdded(new Set(added).add(key)); onAdd(m, url.trim(), reel, gallery.slice(0, 6), note); }}>Show on map</button>
                     </div>
                   );
                 })}

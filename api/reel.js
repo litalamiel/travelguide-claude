@@ -44,6 +44,30 @@ async function toDataUrls(urls, limit = 4) {
   return out;
 }
 
+const unescapeJson = (u) => u.replace(/\\\//g, '/').replace(/\\u0026/g, '&').replace(/&amp;/g, '&');
+
+// The reel's video link, if the embed page includes it, so the app can take key frames.
+const videoUrlFrom = (html) => {
+  const m = html.match(/"video_url"\s*:\s*"([^"]+)"/) || html.match(/<video[^>]+src="([^"]+)"/i);
+  return m ? unescapeJson(m[1]) : undefined;
+};
+const avatarUrlFrom = (html) => {
+  const m = html.match(/class="Avatar[^"]*"[\s\S]{0,600}?<img[^>]+src="([^"]+)"/i) || html.match(/"profile_pic_url"\s*:\s*"([^"]+)"/);
+  return m ? unescapeJson(m[1]) : undefined;
+};
+
+/** Creator's display name from the link preview title, e.g. "Jane Doe (@jane) • Instagram reel". */
+async function creatorName(code) {
+  try {
+    const r = await fetch(`https://www.instagram.com/p/${code}/`, { headers: { 'User-Agent': 'facebookexternalhit/1.1', 'Accept-Language': 'en' } });
+    if (!r.ok) return undefined;
+    const html = await r.text();
+    const t = (html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]*)"/i) || [])[1];
+    const m = t && decode(t).match(/^(.+?)\s*\(@[\w.]+\)/);
+    return m ? m[1].trim() : undefined;
+  } catch { return undefined; }
+}
+
 async function fromEmbed(code) {
   const r = await fetch(`https://www.instagram.com/p/${code}/embed/captioned/`, { headers: { 'User-Agent': UA, 'Accept-Language': 'en' } });
   if (!r.ok) return null;
@@ -52,7 +76,7 @@ async function fromEmbed(code) {
   if (!block) return null;
   const author = (block[1].match(/class="CaptionUsername"[^>]*>([\s\S]*?)<\/a>/i) || [])[1];
   const text = decode(block[1].replace(/<a[^>]*class="CaptionUsername"[^>]*>[\s\S]*?<\/a>/i, ''));
-  return text ? { caption: text, author: author ? decode(author) : undefined, imageUrls: imgUrlsFrom(html) } : null;
+  return text ? { caption: text, author: author ? decode(author) : undefined, imageUrls: imgUrlsFrom(html), videoUrl: videoUrlFrom(html), avatarUrl: avatarUrlFrom(html) } : null;
 }
 
 async function fromPreview(code) {
@@ -76,9 +100,15 @@ export default async function handler(req, res) {
   try {
     const out = (await fromEmbed(code)) || (await fromPreview(code));
     if (!out) return res.status(404).json({ error: 'Couldn’t read this reel’s caption. It may be private or removed.' });
-    const images = await toDataUrls(out.imageUrls || []);
-    res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=604800');
-    return res.status(200).json({ shortcode: code, caption: out.caption, author: out.author, images });
+    const [images, avatar, authorName] = await Promise.all([
+      toDataUrls(out.imageUrls || []),
+      out.avatarUrl ? toDataUrls([out.avatarUrl], 1).then((a) => a[0]) : undefined,
+      creatorName(code),
+    ]);
+    // Video links expire within hours: the app takes its key frames right away, through /api/media.
+    const video = out.videoUrl ? `/api/media?u=${encodeURIComponent(out.videoUrl)}` : undefined;
+    res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
+    return res.status(200).json({ shortcode: code, caption: out.caption, author: out.author, authorName, avatar, images, video });
   } catch (e) {
     return res.status(502).json({ error: 'Instagram didn’t respond. Try again in a moment.' });
   }

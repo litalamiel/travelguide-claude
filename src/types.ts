@@ -15,7 +15,19 @@ export interface Place {
   reelUrl?: string;
   /** User's own photos, or frames/cover from the reel. Stored as small JPEG data URLs. */
   photos?: string[];
-  reel?: { author?: string; caption?: string };
+  reel?: {
+    /** Instagram handle, without the @. */
+    author?: string;
+    /** Creator's display name. */
+    authorName?: string;
+    /** Creator's profile picture (small data URL). */
+    avatar?: string;
+    /** Caption as shown in the app (English when the user saved a translation). */
+    caption?: string;
+    /** Original caption when it was translated. */
+    captionOriginal?: string;
+    captionLang?: string;
+  };
   visited?: boolean;
 }
 
