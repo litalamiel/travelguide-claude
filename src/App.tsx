@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MapView from './MapView';
-import { CATEGORIES, categoryById } from './categories';
+import { CATEGORIES, KIDS, categoryById } from './categories';
 import { analyzeCaption, findCaptionPlace, searchPlaces, type SearchResult } from './geocode';
 import { daysFromTrip, planTrip, toTripDays, type PlanOptions } from './planner';
 import { loadMaps, newMap, saveMaps } from './storage';
@@ -276,6 +276,10 @@ export default function App() {
               {c.label} <span className="cat__n">{counts[c.id] ?? 0}</span>
             </button>
           ))}
+          <button className={'cat' + (kidsOnly ? ' cat--on' : '')} onClick={() => { setKidsOnly((k) => !k); setTripId(undefined); }} aria-pressed={kidsOnly}>
+            <span className="cat__icon cat__icon--solid cat__icon--kids" style={{ boxShadow: kidsOnly ? `0 0 0 3px #fff, 0 0 0 5px ${KIDS.color}` : undefined }}>{KIDS.text}</span>
+            Kids friendly <span className="cat__n">{places.filter((p) => p.kids).length}</span>
+          </button>
         </nav>
       </header>
 

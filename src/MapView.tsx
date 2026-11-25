@@ -85,7 +85,7 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
         : `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg>`;
       btn.innerHTML = `<span class="pin__shape" style="background:${color}"></span><span class="pin__inner">${inner}</span>` +
         (p.mustSee ? `<span class="pin__star"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="#fff"><path d="${STAR}"/></svg></span>` : '') +
-        (p.kids ? `<span class="pin__kids"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="${KIDS.icon}"/></svg></span>` : '') +
+        (p.kids ? `<span class="pin__kids" aria-hidden="true">${KIDS.text}</span>` : '') +
         (p.source === 'reel' ? (p.photos?.[0] ? `<span class="pin__badge" style="background-image:url('${p.photos[0]}')"></span>` : '<span class="pin__badge pin__badge--play">▶</span>') : '');
       btn.addEventListener('click', (e) => { e.stopPropagation(); onSelect(p.id); });
       return new maplibregl.Marker({ element: btn, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(m);

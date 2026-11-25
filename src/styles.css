@@ -399,7 +399,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tag--time { background: #e0f2fe; color: #075985; }
 .tag--kids { background: #fef3c7; color: #92400e; }
 .pin__star { position: absolute; right: -6px; top: 18px; width: 18px; height: 18px; border-radius: 9px; border: 2px solid #fff; background: #f59e0b; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
-.pin__kids { position: absolute; left: -7px; top: -8px; width: 20px; height: 20px; border-radius: 10px; border: 2px solid #fff; background: #f59e0b; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+.pin__kids { position: absolute; left: -10px; top: -9px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 9px; font-weight: 800; letter-spacing: .03em; color: #fff; border: 2px solid #fff; background: #f59e0b; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
 .pin--maybe .pin__shape, .pin--maybe .pin__inner { transform-origin: 18px 36px; }
 .pin--maybe .pin__inner { transform: scale(.8); }
 .pin--maybe .pin__shape { transform: scale(.8) rotate(-45deg); opacity: .8; }
@@ -450,3 +450,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .pcard__name { font-size: 15px; }
 }
 @media (prefers-reduced-motion: reduce) { .plist { transition: none; } }
+
+/* Kids friendly: "KIDS" text badge (pick 6) */
+.cat__icon--kids { background: #f59e0b; color: #fff; font-size: 12px; font-weight: 800; letter-spacing: .03em; }
+.kids-badge { background: #f59e0b; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: .03em; border-radius: 8px; padding: 2px 6px; }
+.ptag--kids { background: #f59e0b; color: #fff; font-weight: 800; font-size: 11px; letter-spacing: .03em; padding: 4px 9px; }
+.tag--kids { background: #f59e0b; color: #fff; }

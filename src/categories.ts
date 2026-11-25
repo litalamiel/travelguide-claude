@@ -23,7 +23,8 @@ export const CATEGORIES: Category[] = [
 ];
 
 /** Kids friendly is a tag that can sit on a place of any category. */
-export const KIDS = { label: 'Kids friendly', color: '#b45309', tint: '#fef3c7', badge: '#f59e0b', icon: 'M12 3a5 5 0 0 1 5 5c0 3.5-3 6-5 6s-5-2.5-5-6a5 5 0 0 1 5-5zM12 14v2M12 16c-1.5 2 1.5 3 0 5' };
+/** Shown as a "KIDS" text badge (Lital's pick 6), not an icon. */
+export const KIDS = { label: 'Kids friendly', text: 'KIDS', color: '#f59e0b', ink: '#ffffff' };
 export const STAR = 'M12 2l3 7 7 .6-5.3 4.7 1.6 7.2L12 17.8 5.7 21.5l1.6-7.2L2 9.6 9 9z';
 
 export const categoryById = (id: CategoryId) => CATEGORIES.find((c) => c.id === id) ?? CATEGORIES[3];

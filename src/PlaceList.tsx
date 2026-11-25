@@ -30,7 +30,7 @@ function PlaceCard({ p, on, onSelect }: { p: Place; on: boolean; onSelect: () =>
             <span className="ptag"><span className="ptag__ic" style={{ background: c.color }}><Svg d={c.icon} /></span>{c.label}</span>
             {p.mustSee && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#15803d' }} />Must do</span>}
             {p.ifTime && !p.mustSee && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#0284c7' }} />If you have time</span>}
-            {p.kids && <span className="ptag"><span className="ptag__ic" style={{ background: KIDS.color }}><Svg d={KIDS.icon} /></span>Kids</span>}
+            {p.kids && <span className="ptag ptag--kids">{KIDS.text} FRIENDLY</span>}
             {p.visited && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#64748b' }} />Visited</span>}
           </span>
           {text && <span className="pcard__text">{text}</span>}

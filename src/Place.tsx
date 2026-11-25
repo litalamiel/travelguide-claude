@@ -27,7 +27,7 @@ export function PriorityControl({ value, onChange }: { value: Flags; onChange: (
         ))}
       </div>
       <button className={'chip chip--kids' + (value.kids ? ' chip--kids-on' : '')} aria-pressed={!!value.kids} onClick={() => onChange({ kids: !value.kids })}>
-        <Svg d={KIDS.icon} size={16} /> Kids friendly{value.kids ? ' ✓' : ''}
+        <span className="kids-badge">{KIDS.text}</span> Kids friendly{value.kids ? ' ✓' : ''}
       </button>
     </div>
   );
