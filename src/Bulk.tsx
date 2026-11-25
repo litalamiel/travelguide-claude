@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { categoryById } from './categories';
+import { CATEGORIES, categoryById } from './categories';
+import { Carousel } from './Place';
+import { keyFrames } from './reel';
 import { analyzeCaption, countryOf, findCaptionPlace, type SearchResult } from './geocode';
-import type { Place } from './types';
+import type { CategoryId, Place } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
@@ -55,7 +57,7 @@ s('Collected <b>'+c.size+' reels</b> from “'+n.replace(/</g,'')+'”.<a href="
   return 'javascript:' + encodeURIComponent(code.replace(/\n/g, ''));
 }
 
-type ReelData = { caption?: string; author?: string; authorName?: string; avatar?: string; images?: string[] };
+type ReelData = { caption?: string; author?: string; authorName?: string; avatar?: string; images?: string[]; video?: string };
 
 /** One place found in one reel. */
 export interface BulkPlace {
@@ -66,8 +68,10 @@ export interface BulkPlace {
   choice: number;
   sure: boolean;
   keep: boolean;
+  /** Category the user chose instead of the one we guessed. */
+  category?: CategoryId;
 }
-export interface BulkReel { code: string; status: 'waiting' | 'reading' | 'done' | 'none' | 'failed'; data?: ReelData }
+export interface BulkReel { code: string; status: 'waiting' | 'reading' | 'done' | 'none' | 'failed'; data?: ReelData; frames?: string[]; framesState?: 'loading' | 'done' | 'none' }
 
 const reelUrl = (code: string) => `https://www.instagram.com/p/${code}/`;
 
@@ -131,7 +135,7 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
     worker(); worker();
     return () => { stop = true; };
   }, [batch]);
-  return { reels, places, setPlaces };
+  return { reels, places, setPlaces, setReels };
 }
 
 /** Turn the kept places into map places. */
@@ -140,24 +144,33 @@ export function toPlaces(places: BulkPlace[], reels: BulkReel[], uid: () => stri
     const m = p.matches[p.choice];
     const d = reels.find((r) => r.code === p.code)?.data ?? {};
     return {
-      id: uid(), name: m.name, lat: m.lat, lng: m.lng, address: m.address, category: m.category,
-      source: 'reel', reelUrl: reelUrl(p.code), photos: (d.images ?? []).slice(0, 4),
+      id: uid(), name: m.name, lat: m.lat, lng: m.lng, address: m.address, category: p.category ?? m.category,
+      source: 'reel', reelUrl: reelUrl(p.code), photos: [...(d.images ?? []), ...(reels.find((r) => r.code === p.code)?.frames ?? [])].slice(0, 10),
       reel: { caption: d.caption, author: d.author, authorName: d.authorName, avatar: d.avatar },
     };
   });
 }
 
-export function BulkReview({ batch, reels, places, setPlaces, focus, onFocus, onAdd, onClose }: {
+function CatIcon({ id, size = 30 }: { id: CategoryId; size?: number }) {
+  const c = categoryById(id);
+  return (
+    <span className="bicon" style={{ background: c.tint, color: c.color, width: size, height: size }} title={c.label} aria-label={c.label}>
+      <svg aria-hidden="true" width={size * 0.55} height={size * 0.55} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d={c.icon} /></svg>
+    </span>
+  );
+}
+
+export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, onFocus, onAdd, onClose }: {
   batch: ReelBatch;
   reels: BulkReel[];
   places: BulkPlace[];
   setPlaces: (fn: (ps: BulkPlace[]) => BulkPlace[]) => void;
+  setReels: (fn: (rs: BulkReel[]) => BulkReel[]) => void;
   focus?: string;
-  onFocus: (key: string) => void;
+  onFocus: (key: string | undefined) => void;
   onAdd: () => void;
   onClose: () => void;
 }) {
-  const [open, setOpen] = useState<string>();
   const doneCount = reels.filter((r) => r.status !== 'waiting' && r.status !== 'reading').length;
   const reading = doneCount < reels.length;
   const keep = places.filter((p) => p.keep).length;
@@ -165,76 +178,144 @@ export function BulkReview({ batch, reels, places, setPlaces, focus, onFocus, on
   const nothing = reels.filter((r) => r.status === 'none' || r.status === 'failed');
   const listRef = useRef<HTMLDivElement>(null);
   const set = (key: string, patch: Partial<BulkPlace>) => setPlaces((ps) => ps.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+  const open = places.find((p) => p.key === focus);
 
   useEffect(() => {
     if (focus) listRef.current?.querySelector(`[data-key="${CSS.escape(focus)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [focus]);
 
   return (
-    <aside className="bulk" aria-label={`Review reels from ${batch.name}`}>
-      <div className="bulk__head">
-        <div>
-          <h2>{batch.name} · {reels.length} {reels.length === 1 ? 'reel' : 'reels'}</h2>
-          <div className="muted small">
-            {reading ? `Reading ${doneCount} of ${reels.length} · ` : ''}{places.length} found{toPick ? ` · ${toPick} to pick` : ''}{nothing.length ? ` · ${nothing.length} with no place` : ''}
-          </div>
-        </div>
-        <button className="icon-btn" aria-label="Close without adding" onClick={onClose}>✕</button>
-      </div>
-      {reading && <div className="bulk__prog" aria-hidden="true"><div style={{ width: `${(100 * doneCount) / Math.max(1, reels.length)}%` }} /></div>}
-      <div className="bulk__list" ref={listRef}>
-        {places.map((p) => {
-          const m = p.matches[p.choice];
-          const c = categoryById(m.category);
-          const cover = reels.find((r) => r.code === p.code)?.data?.images?.[0];
-          return (
-            <div key={p.key} data-key={p.key} className={'brow' + (focus === p.key ? ' brow--on' : '')}>
-              <input type="checkbox" checked={p.keep} aria-label={`Add ${m.name}`} onChange={(e) => set(p.key, { keep: e.target.checked })} />
-              <button className="brow__main" onClick={() => onFocus(p.key)}>
-                <span className="brow__cover" style={{ background: c.tint }}>{cover && <img src={cover} alt="" />}</span>
-                <span className="brow__text">
-                  <strong>{m.name}</strong>
-                  <small>{c.label} · {m.address || p.phrase}</small>
-                  {p.sure || p.matches.length === 1
-                    ? <span className="bchip bchip--ok">Clear match</span>
-                    : <span className="bchip bchip--ask">{p.keep ? 'Picked' : 'Pick one'} · {p.matches.length} options</span>}
-                </span>
-              </button>
-              {!p.sure && p.matches.length > 1 && (
-                <button className="btn btn--small" onClick={() => setOpen(open === p.key ? undefined : p.key)} aria-expanded={open === p.key}>{open === p.key ? 'Done' : 'Pick'}</button>
-              )}
-              {open === p.key && (
-                <div className="brow__opts">
-                  <div className="muted small">From “{p.phrase}”</div>
-                  {p.matches.map((o, i) => (
-                    <label key={i} className={'bopt' + (i === p.choice ? ' bopt--on' : '')}>
-                      <input type="radio" name={p.key} checked={i === p.choice} onChange={() => { set(p.key, { choice: i, keep: true }); onFocus(p.key); }} />
-                      <span><strong>{o.name}</strong><small>{categoryById(o.category).label} · {o.address}</small></span>
-                    </label>
-                  ))}
-                </div>
-              )}
+    <>
+      <aside className="bulk" aria-label={`Review reels from ${batch.name}`}>
+        <div className="bulk__head">
+          <div>
+            <h2>{batch.name} · {reels.length} {reels.length === 1 ? 'reel' : 'reels'}</h2>
+            <div className="muted small">
+              {reading ? `Reading ${doneCount} of ${reels.length} · ` : ''}{places.length} found{toPick ? ` · ${toPick} to pick` : ''}{nothing.length ? ` · ${nothing.length} with no place` : ''}
             </div>
-          );
-        })}
-        {reels.filter((r) => r.status === 'reading' || r.status === 'waiting').length > 0 && (
-          <div className="brow brow--wait muted small">Reading {reels.filter((r) => r.status === 'reading' || r.status === 'waiting').length} more reels…</div>
+          </div>
+          <button className="icon-btn" aria-label="Close without adding" onClick={onClose}>✕</button>
+        </div>
+        {reading && <div className="bulk__prog" aria-hidden="true"><div style={{ width: `${(100 * doneCount) / Math.max(1, reels.length)}%` }} /></div>}
+        <div className="bulk__list" ref={listRef}>
+          {places.map((p) => {
+            const m = p.matches[p.choice];
+            const cat = p.category ?? m.category;
+            const c = categoryById(cat);
+            const cover = reels.find((r) => r.code === p.code)?.data?.images?.[0];
+            return (
+              <div key={p.key} data-key={p.key} className={'brow' + (focus === p.key ? ' brow--on' : '')}>
+                <input type="checkbox" checked={p.keep} aria-label={`Add ${m.name}`} onChange={(e) => set(p.key, { keep: e.target.checked })} />
+                <CatIcon id={cat} />
+                <button className="brow__main" onClick={() => onFocus(focus === p.key ? undefined : p.key)} aria-expanded={focus === p.key}>
+                  <span className="brow__cover" style={{ background: c.tint }}>{cover && <img src={cover} alt="" />}</span>
+                  <span className="brow__text">
+                    <strong>{m.name}</strong>
+                    <small>{c.label} · {m.address || p.phrase}</small>
+                    {p.sure || p.matches.length === 1
+                      ? <span className="bchip bchip--ok">Clear match</span>
+                      : <span className="bchip bchip--ask">{p.keep ? 'Picked' : 'Pick one'} · {p.matches.length} options</span>}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
+          {reels.filter((r) => r.status === 'reading' || r.status === 'waiting').length > 0 && (
+            <div className="brow brow--wait muted small">Reading {reels.filter((r) => r.status === 'reading' || r.status === 'waiting').length} more reels…</div>
+          )}
+          {nothing.length > 0 && (
+            <details className="bulk__none">
+              <summary>{nothing.length} {nothing.length === 1 ? 'reel' : 'reels'} with no place we could find</summary>
+              {nothing.map((r) => (
+                <a key={r.code} href={reelUrl(r.code)} target="_blank" rel="noreferrer" className="small">
+                  {r.data?.author ? `@${r.data.author}` : r.code} · {r.status === 'failed' ? 'couldn’t read' : 'no place in caption'} ↗
+                </a>
+              ))}
+            </details>
+          )}
+        </div>
+        <div className="bulk__foot">
+          <button className="btn btn--primary" disabled={!keep} onClick={onAdd}>Add {keep} {keep === 1 ? 'place' : 'places'} to map</button>
+        </div>
+      </aside>
+      {open && (
+        <ReelCard key={open.key} place={open} reel={reels.find((r) => r.code === open.code)} setReels={setReels}
+          onChange={(patch) => set(open.key, patch)} onFocus={() => onFocus(open.key)} onClose={() => onFocus(undefined)} />
+      )}
+    </>
+  );
+}
+
+/** The reel behind one found place: big frames, creator, caption, category and place options. */
+function ReelCard({ place, reel, setReels, onChange, onFocus, onClose }: {
+  place: BulkPlace;
+  reel?: BulkReel;
+  setReels: (fn: (rs: BulkReel[]) => BulkReel[]) => void;
+  onChange: (patch: Partial<BulkPlace>) => void;
+  onFocus: () => void;
+  onClose: () => void;
+}) {
+  const d = reel?.data ?? {};
+  const m = place.matches[place.choice];
+  const cat = place.category ?? m.category;
+  const [more, setMore] = useState(false);
+  const [allCats, setAllCats] = useState(false);
+  // Key frames are taken when a reel is opened (Instagram gives no video for reels with licensed music).
+  useEffect(() => {
+    if (!reel || !d.video || reel.framesState) return;
+    const code = reel.code;
+    setReels((rs) => rs.map((r) => (r.code === code ? { ...r, framesState: 'loading' } : r)));
+    keyFrames(d.video, 6)
+      .then((f) => setReels((rs) => rs.map((r) => (r.code === code ? { ...r, frames: f, framesState: f.length ? 'done' : 'none' } : r))))
+      .catch(() => setReels((rs) => rs.map((r) => (r.code === code ? { ...r, framesState: 'none' } : r))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reel?.code]);
+  const photos = [...(d.images ?? []), ...(reel?.frames ?? [])];
+  const caption = d.caption ?? '';
+  const shownCats = allCats ? CATEGORIES.map((c) => c.id) : Array.from(new Set([cat, 'stay', 'eat', 'nature', 'experiences', 'views'] as CategoryId[]));
+  return (
+    <section className="bcard" aria-label={`Reel for ${m.name}`}>
+      <button className="icon-btn bcard__close" aria-label="Close reel" onClick={onClose}>✕</button>
+      <div className="bcard__media">
+        {photos.length ? <Carousel key={photos.length} photos={photos} alt={`From the reel about ${m.name}`} /> : <div className="bcard__nomedia muted small">No images from this reel</div>}
+      </div>
+      {reel?.framesState === 'loading' && <p className="muted small bcard__pad">Taking key frames from the video…</p>}
+      {reel?.data && !d.video && <p className="muted small bcard__pad">Instagram didn’t share this reel’s video (usually because of licensed music), so only the cover is shown.</p>}
+      <div className="bcard__body">
+        <div className="bcard__title">
+          <CatIcon id={cat} size={36} />
+          <div><strong>{m.name}</strong><div className="muted small">{categoryById(cat).label} · {m.address}</div></div>
+        </div>
+        <div className="bcard__creator">
+          {d.avatar ? <img src={d.avatar} alt="" /> : <span className="bcard__av" aria-hidden="true">{(d.author ?? '?')[0]?.toUpperCase()}</span>}
+          <strong>{d.author ? `@${d.author}` : 'Instagram'}</strong>
+          <a href={reelUrl(place.code)} target="_blank" rel="noreferrer">Watch reel ↗</a>
+        </div>
+        {caption && (
+          <p className={'bcard__caption' + (more ? '' : ' bcard__caption--short')}>{caption}</p>
         )}
-        {nothing.length > 0 && (
-          <details className="bulk__none">
-            <summary>{nothing.length} {nothing.length === 1 ? 'reel' : 'reels'} with no place we could find</summary>
-            {nothing.map((r) => (
-              <a key={r.code} href={reelUrl(r.code)} target="_blank" rel="noreferrer" className="small">
-                {r.data?.author ? `@${r.data.author}` : r.code} · {r.status === 'failed' ? 'couldn’t read' : 'no place in caption'} ↗
-              </a>
+        {caption.length > 180 && <button className="linkbtn" onClick={() => setMore(!more)}>{more ? 'Show less' : 'Show more'}</button>}
+        {!place.sure && place.matches.length > 1 && (
+          <div className="bcard__opts">
+            <div className="small"><strong>Which place is it?</strong> <span className="muted">From “{place.phrase}”</span></div>
+            {place.matches.map((o, i) => (
+              <label key={i} className={'bopt' + (i === place.choice ? ' bopt--on' : '')}>
+                <input type="radio" name={place.key} checked={i === place.choice} onChange={() => { onChange({ choice: i, keep: true }); onFocus(); }} />
+                <span><strong>{o.name}</strong><small>{categoryById(o.category).label} · {o.address}</small></span>
+              </label>
             ))}
-          </details>
+          </div>
         )}
+        <div className="bcard__cats" role="group" aria-label="Category">
+          {shownCats.map((id) => {
+            const c = categoryById(id);
+            return <button key={id} className={'pillbtn' + (id === cat ? ' pillbtn--on' : '')} aria-pressed={id === cat} onClick={() => onChange({ category: id })}>{c.label}</button>;
+          })}
+          {!allCats && <button className="pillbtn" onClick={() => setAllCats(true)}>More…</button>}
+        </div>
+        <label className="check"><input type="checkbox" checked={place.keep} onChange={(e) => onChange({ keep: e.target.checked })} /> Add this place to the map</label>
       </div>
-      <div className="bulk__foot">
-        <button className="btn btn--primary" disabled={!keep} onClick={onAdd}>Add {keep} {keep === 1 ? 'place' : 'places'} to map</button>
-      </div>
-    </aside>
+    </section>
   );
 }
 

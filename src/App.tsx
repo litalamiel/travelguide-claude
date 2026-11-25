@@ -159,7 +159,7 @@ export default function App() {
   }, []);
   const bulkPins = useMemo(() => bulkReader.places.map((p) => {
     const m = p.matches[p.choice];
-    return { key: p.key, lat: m.lat, lng: m.lng, category: m.category, sure: p.sure || p.matches.length === 1, keep: p.keep, name: m.name };
+    return { key: p.key, lat: m.lat, lng: m.lng, category: p.category ?? m.category, sure: p.sure || p.matches.length === 1, keep: p.keep, name: m.name };
   }), [bulkReader.places]);
   const addBulk = () => {
     const add = toPlaces(bulkReader.places, bulkReader.reels, uid);
@@ -234,9 +234,9 @@ export default function App() {
           bulk={batch ? bulkPins : undefined} bulkFocus={bulkFocus} onBulkSelect={setBulkFocus} />
         {sentElsewhere && <div className="toast" role="status">Sent the reels to your other Travel Maps tab. You can close this one.</div>}
         {batch && (
-          <BulkReview batch={batch} reels={bulkReader.reels} places={bulkReader.places} setPlaces={bulkReader.setPlaces}
+          <BulkReview batch={batch} reels={bulkReader.reels} places={bulkReader.places} setPlaces={bulkReader.setPlaces} setReels={bulkReader.setReels}
             focus={bulkFocus}
-            onFocus={(k) => { setBulkFocus(k); const p = bulkPins.find((x) => x.key === k); if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() }); }}
+            onFocus={(k) => { setBulkFocus(k); const p = k ? bulkPins.find((x) => x.key === k) : undefined; if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() }); }}
             onAdd={addBulk} onClose={() => { setBatch(undefined); setBulkFocus(undefined); }} />
         )}
         {storageWarning && <div className="toast" role="status">This browser is out of storage space, so recent changes may not be saved. Remove some photos to free space.</div>}
