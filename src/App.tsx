@@ -271,7 +271,7 @@ export default function App() {
           </button>
           {CATEGORIES.map((c) => (
             <button key={c.id} className={'cat' + (cats.includes(c.id) ? ' cat--on' : '')} onClick={() => { toggleCat(c.id); setTripId(undefined); }} aria-pressed={cats.includes(c.id)}>
-              <span className="cat__icon" style={{ background: cats.includes(c.id) ? c.color : c.tint, color: cats.includes(c.id) ? '#fff' : c.color }}><Icon d={c.icon} /></span>
+              <span className={'cat__icon cat__icon--solid' + (cats.length && !cats.includes(c.id) ? ' cat__icon--faded' : '')} style={{ background: c.color, color: '#fff', boxShadow: cats.includes(c.id) ? `0 0 0 3px #fff, 0 0 0 5px ${c.color}` : undefined }}><Icon d={c.icon} /></span>
               {c.label} <span className="cat__n">{counts[c.id] ?? 0}</span>
             </button>
           ))}

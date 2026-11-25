@@ -9,11 +9,11 @@ export interface Category {
 }
 
 export const CATEGORIES: Category[] = [
-  { id: 'eat', label: 'Restaurant', color: '#b91c1c', tint: '#fee2e2', icon: 'M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 2-2 6 0 8v10' },
-  { id: 'coffee', label: 'Coffee', color: '#92400e', tint: '#fef3c7', icon: 'M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1a3 3 0 0 1 0 6h-1' },
-  { id: 'drinks', label: 'Bar', color: '#6d28d9', tint: '#ede9fe', icon: 'M5 4h14l-7 8zM12 12v8M8 20h8' },
+  { id: 'eat', label: 'Restaurant', color: '#b91c1c', tint: '#fee2e2', icon: 'M3 3v7a3 3 0 0 0 6 0V3M6 3v18M17 3c-2.5 1-3 5-3 8h3v10' },
+  { id: 'coffee', label: 'Coffee', color: '#92400e', tint: '#fef3c7', icon: 'M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1a3 3 0 0 1 0 6h-1M8 3v3M12 3v3' },
+  { id: 'drinks', label: 'Bar', color: '#6d28d9', tint: '#ede9fe', icon: 'M5 4h14l-7 8zM12 12v8M8 20h8M15 7l3-3' },
   { id: 'sights', label: 'Sights', color: '#1d4ed8', tint: '#dbeafe', icon: 'M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6' },
-  { id: 'views', label: 'Views', color: '#0e7490', tint: '#cffafe', icon: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z' },
+  { id: 'views', label: 'Views', color: '#0e7490', tint: '#cffafe', icon: 'M4 18l4-6 3 4 3-5 6 7M2 12s4-7 10-7 10 7 10 7' },
   { id: 'nature', label: 'Outdoor', color: '#15803d', tint: '#dcfce7', icon: 'M3 20l6-11 4 6 3-4 5 9zM9 9l1.5-4' },
   { id: 'beaches', label: 'Beaches', color: '#a16207', tint: '#fef9c3', icon: 'M2 20c3-2 5-2 8 0s5 2 8 0M12 4a6 6 0 0 1 6 6H6a6 6 0 0 1 6-6zM12 10v7' },
   { id: 'museums', label: 'Museums', color: '#be185d', tint: '#fce7f3', icon: 'M3 9l9-5 9 5M5 9v9M10 9v9M14 9v9M19 9v9M3 20h18' },

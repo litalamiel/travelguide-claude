@@ -79,7 +79,7 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
       const color = plan && dayIndex >= 0 ? DAY_COLORS[dayIndex % DAY_COLORS.length] : c.color;
       const inner = stop
         ? `<span class="pin__num">${stop}</span>`
-        : `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg>`;
+        : `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg>`;
       btn.innerHTML = `<span class="pin__shape" style="background:${color}"></span><span class="pin__inner">${inner}</span>` +
         (p.mustSee ? `<span class="pin__star"><svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="#fff"><path d="${STAR}"/></svg></span>` : '') +
         (p.kids ? `<span class="pin__kids"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="${KIDS.icon}"/></svg></span>` : '') +
@@ -157,7 +157,7 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
     const c = categoryById(preview.category);
     const el = document.createElement('div');
     el.className = 'pin pin--preview';
-    el.innerHTML = `<span class="pin__halo"></span><span class="pin__shape" style="background:${c.color}"></span><span class="pin__inner"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg></span><span class="pin__label">Preview · drag to adjust</span>`;
+    el.innerHTML = `<span class="pin__halo"></span><span class="pin__shape" style="background:${c.color}"></span><span class="pin__inner"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg></span><span class="pin__label">Preview · drag to adjust</span>`;
     const mk = new maplibregl.Marker({ element: el, anchor: 'bottom', draggable: true }).setLngLat([preview.lng, preview.lat]).addTo(m);
     mk.on('dragend', () => { const ll = mk.getLngLat(); moveRef.current?.(ll.lat, ll.lng); });
     previewMarker.current = mk;

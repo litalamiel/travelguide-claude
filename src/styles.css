@@ -403,3 +403,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .pin--maybe .pin__shape, .pin--maybe .pin__inner { transform-origin: 18px 36px; }
 .pin--maybe .pin__inner { transform: scale(.8); }
 .pin--maybe .pin__shape { transform: scale(.8) rotate(-45deg); opacity: .8; }
+
+/* Style B: bold white icons on solid color circles */
+.cat__icon--solid { border-radius: 22px; }
+.cat__icon--solid svg { stroke-width: 2.6; }
+.cat__icon--faded { opacity: .45; }
