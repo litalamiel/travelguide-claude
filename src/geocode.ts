@@ -7,12 +7,15 @@ export interface SearchResult {
   lat: number;
   lng: number;
   category: CategoryId;
+  /** OpenStreetMap kind, e.g. "tourism:hotel" or "highway:residential". */
+  osm?: string;
 }
 
 // Photon (by Komoot) is a free, keyless OpenStreetMap geocoder. It is fine for a
 // prototype; for production we swap this for Google Places (see README).
-export async function searchPlaces(query: string, near?: { lat: number; lng: number }): Promise<SearchResult[]> {
-  const params = new URLSearchParams({ q: query, limit: '6', lang: 'en' });
+export async function searchPlaces(query: string, near?: { lat: number; lng: number }, osmTags: string[] = [], limit = 6): Promise<SearchResult[]> {
+  const params = new URLSearchParams({ q: query, limit: String(limit), lang: 'en' });
+  osmTags.forEach((t) => params.append('osm_tag', t));
   if (near) {
     params.set('lat', String(near.lat));
     params.set('lon', String(near.lng));
@@ -30,6 +33,7 @@ export async function searchPlaces(query: string, near?: { lat: number; lng: num
       lat,
       lng,
       category: guessCategory(p.osm_key, p.osm_value),
+      osm: `${p.osm_key}:${p.osm_value}`,
     } satisfies SearchResult;
   });
 }
@@ -59,6 +63,18 @@ const HINTS: [CategoryId, RegExp][] = [
   ['experiences', /\b(tour|class|workshop|boat trip|cruise|surf(ing)? lesson|tickets?)\b|🎟️?|🚤/iu],
   ['sights', /\b(castle|palace|pal[aá]cio|church|cathedral|monastery|temple|tower|monument|old town)\b|🏰|🏛️?|⛪/iu],
 ];
+const GENERIC_TAG = /travel|reels?|explore|fyp|viral|trip|vacation|holiday|wanderlust|food|insta|love|photo|life|gifted|ad\b|thank|family|kids?|summer|winter|weekend|happy|style|vibes?|goals/i;
+// Hashtags run words together (#familyhotel), so look for the key word anywhere inside.
+const TAG_HINTS: [CategoryId, RegExp][] = [
+  ['stay', /hotel|resort|hostel|villa|airbnb|glamping|lodge|spa/i], ['eat', /restaurant|foodie|dinner|lunch|brunch|eats/i],
+  ['coffee', /coffee|cafe|bakery/i], ['drinks', /bar|cocktail|wine/i], ['beaches', /beach|praia|playa/i],
+  ['views', /viewpoint|sunset/i], ['museums', /museum|gallery/i], ['nature', /hike|hiking|waterfall|nationalpark|mountain/i],
+];
+export function hintFromTag(tag: string): CategoryId | undefined {
+  for (const [id, re] of TAG_HINTS) if (re.test(tag)) return id;
+  return undefined;
+}
+
 export function hintFrom(text: string): CategoryId | undefined {
   for (const [id, re] of HINTS) if (re.test(text)) return id;
   return undefined;
@@ -103,42 +119,108 @@ export function analyzeCaption(caption: string): CaptionPlace[] {
       add({ query: place, area: rest.join(', ') || undefined, hint: hintFrom(line) ?? hintFrom(place), from: 'pin' });
     }
   }
-  // A pin with only a city ("📍 Lisbon") is the area for the other names.
-  const pinAreas = out.filter((p) => !p.area && p.from === 'pin' && !p.hint).map((p) => p.query);
-
-  if (!out.length || out.every((p) => pinAreas.includes(p.query))) {
-    const area = pinAreas[0];
-    for (const line of lines) {
-      const at = line.match(/\b(?:at|in|@)\s+([A-Z][\p{L}'’-]*(?:\s+(?:[A-Z][\p{L}'’-]*|dos|das|del|de|da|do|di|la|le|of)\b)*)/u);
-      if (at) add({ query: at[1], area, hint: hintFrom(line), from: 'at' });
-    }
-    const tags = (caption.match(/#[\p{L}\d_]+/gu) ?? [])
-      .map((t) => t.slice(1).replace(/([a-z])([A-Z])/g, '$1 $2'))
-      .filter((w) => w.length > 3 && !/travel|reels?|explore|fyp|viral|trip|vacation|wanderlust|food|insta|love|photo|life/i.test(w));
-    const before = out.length;
-    const caps = caption.match(/\b[A-Z][\p{L}'’-]+(?:[^\S\n]+(?:dos|das|del|de|da|do|di|la|le|of|[A-Z][\p{L}'’-]+)\b)+/gu) ?? [];
-    caps.forEach((c) => add({ query: c.trim(), area, from: 'name' }));
-    // Hashtags are usually the city or country: use them as the area, or as places only when nothing else was found.
-    const tagArea = tags[0];
-    if (out.length > before || out.length) out.forEach((p) => { if (!p.area && tagArea) p.area = tagArea; });
-    else tags.forEach((w) => add({ query: w, area, from: 'hashtag' }));
+  const pins = [...out];
+  // "at X" / "in X" is a strong signal even with pins ("📍 Lisbon … dinner at Taberna X").
+  for (const line of lines) {
+    const at = line.match(/\b(?:at|in|@)\s+([A-Z][\p{L}'’-]*(?:\s+(?:[A-Z][\p{L}'’-]*|dos|das|del|de|da|do|di|la|le|of)\b)*)/u);
+    if (at && (!pins.length || hintFrom(line))) add({ query: at[1], hint: hintFrom(line), from: 'at' });
   }
-  // With one place in the caption, hints anywhere in the caption apply to it.
-  const real = out.filter((p) => !pinAreas.includes(p.query) || out.length === 1);
-  if (real.length === 1 && !real[0].hint) real[0].hint = wholeHint;
+  const ats = out.filter((p) => p.from === 'at');
+  // A pin with no hint next to a named place is probably just the city: use it as the area.
+  const pinCities = ats.length ? pins.filter((p) => !p.hint && !p.area) : [];
+  ats.forEach((p) => { if (!p.area && pinCities[0]) p.area = pinCities[0].query; });
+
+  const tags = (caption.match(/#[\p{L}\d_]+/gu) ?? []).map((t) => t.slice(1));
+  // Weak signals (capitalised names, hashtags) only when the caption has no pin and no "at X".
+  if (!out.length) {
+    const caps = caption.match(/\b[A-Z][\p{L}'’-]+(?:[^\S\n]+(?:dos|das|del|de|da|do|di|la|le|of|[A-Z][\p{L}'’-]+)\b)+/gu) ?? [];
+    caps.forEach((c) => add({ query: c.trim(), from: 'name' }));
+    if (!out.length) {
+      tags.map((t) => t.replace(/([a-z])([A-Z])/g, '$1 $2'))
+        .filter((w) => w.length > 3 && !GENERIC_TAG.test(w) && !hintFromTag(w))
+        .forEach((w) => add({ query: w, from: 'hashtag' }));
+    }
+  }
+  const real = out.filter((p) => !pinCities.includes(p));
+  // With one place in the caption, hints anywhere in the caption or hashtags apply to it.
+  if (real.length === 1 && !real[0].hint) real[0].hint = wholeHint ?? tags.map(hintFromTag).find(Boolean);
   return real.slice(0, 6);
 }
 
-/** Search for a caption place and use the caption's hint to pick the category and the best match. */
-export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; lng: number }): Promise<SearchResult[]> {
-  let results = await searchPlaces(p.area ? `${p.query}, ${p.area}` : p.query, near);
-  if (!results.length && p.area) results = await searchPlaces(p.query, near);
-  if (p.hint) {
-    // Prefer matches that already look like the hinted kind of place, then label them with the hint.
-    results = [...results].sort((a, b) => Number(b.category === p.hint) - Number(a.category === p.hint));
-    results = results.map((r) => ({ ...r, category: p.hint! }));
+const norm = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+// Words that describe a kind of place rather than name it ("Praia da Ursa" is "Ursa Beach" on the map).
+const GENERIC = new Set('praia playa plage beach hotel resort restaurant restaurante cafe bar miradouro mirador viewpoint museum museu museo the and das dos del'.split(' '));
+const keyWords = (t: string) => norm(t).split(/[^\p{L}\d]+/u).filter((w) => w.length > 2 && !GENERIC.has(w));
+/** Every distinctive word of `words` appears in `name`. */
+const nameHas = (name: string, words: string) => { const k = keyWords(words); return k.length > 0 && k.every((w) => norm(name).includes(w)); };
+/** Whole-word match ("Hotel Neuhaus") ranks above a longer word that contains it ("Neuhaushof"). */
+const wholeWord = (name: string, words: string) => keyWords(words).every((w) => new RegExp(`(^|[^\\p{L}])${w}([^\\p{L}]|$)`, 'u').test(norm(name)));
+
+const distKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const r = Math.PI / 180;
+  const x = (b.lng - a.lng) * r * Math.cos(((a.lat + b.lat) / 2) * r);
+  const y = (b.lat - a.lat) * r;
+  return Math.sqrt(x * x + y * y) * 6371;
+};
+
+// The kinds of map features that match each category, used to look for "a hotel called X" rather than anything called X.
+const OSM_TAGS: Partial<Record<CategoryId, string[]>> = {
+  stay: ['tourism:hotel', 'tourism:guest_house', 'tourism:hostel', 'tourism:apartment', 'tourism:chalet', 'tourism:motel', 'leisure:resort', 'tourism:camp_site'],
+  eat: ['amenity:restaurant', 'amenity:fast_food', 'amenity:food_court'],
+  coffee: ['amenity:cafe', 'shop:bakery', 'shop:pastry'],
+  drinks: ['amenity:bar', 'amenity:pub', 'amenity:nightclub'],
+  beaches: ['natural:beach'],
+  views: ['tourism:viewpoint'],
+  museums: ['tourism:museum', 'tourism:gallery'],
+  nature: ['leisure:park', 'leisure:nature_reserve', 'boundary:national_park', 'natural:peak', 'waterway:waterfall'],
+  shopping: ['shop', 'amenity:marketplace'],
+  sights: ['tourism:attraction', 'historic', 'tourism:artwork'],
+  experiences: ['tourism:theme_park', 'tourism:zoo', 'leisure:water_park'],
+};
+const tagRank = (tags: string[], osm = '') => { const i = tags.findIndex((t) => osm === t || osm.startsWith(`${t}:`)); return i < 0 ? 99 : i; };
+// Streets and plain areas are rarely what a reel is about.
+const NOT_A_PLACE = /^(highway|place|boundary:administrative|landuse|building:(yes|house|residential)):?/;
+
+/**
+ * Search for a caption place. When the caption says what kind of place it is ("This hotel…", #familyhotel),
+ * look only at that kind of place first; a single match of the right kind is treated as the answer.
+ */
+export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; lng: number }): Promise<{ results: SearchResult[]; confident: boolean }> {
+  const q = p.area ? `${p.query}, ${p.area}` : p.query;
+  const tags = p.hint ? OSM_TAGS[p.hint] : undefined;
+  if (tags) {
+    // Only trust a typed match whose name really contains the caption's words (search is fuzzy).
+    let typed = (await searchPlaces(q, undefined, tags)).filter((r) => nameHas(r.name, p.query));
+    if (!typed.length && p.area) typed = (await searchPlaces(p.query, undefined, tags)).filter((r) => nameHas(r.name, p.query));
+    if (typed.length) return { results: typed.map((r) => ({ ...r, category: p.hint! })), confident: true };
   }
-  return results;
+  let results = await searchPlaces(q, near);
+  if (tags && results.length) {
+    // Names in captions often add the region ("📍 Neuhaus Zillertal" is Hotel Neuhaus in the Zillertal valley).
+    // Find where the name points, then look for that kind of place with a shorter name nearby.
+    const anchor = results[0];
+    const words = p.query.split(/\s+/);
+    for (let n = words.length - 1; n >= 1; n--) {
+      const sub = words.slice(0, n).join(' ');
+      if (!keyWords(sub).length) break;
+      const typed = (await searchPlaces(sub, anchor, tags, 15))
+        .filter((r) => nameHas(r.name, sub))
+        // Rank: whole-word name, then the main kind (a hotel before a guest house), then distance.
+        .map((r) => ({ r, d: distKm(anchor, r), w: wholeWord(r.name, sub), t: tagRank(tags, r.osm) }))
+        .filter((x) => x.d < 40)
+        .sort((a, b) => Number(b.w) - Number(a.w) || a.t - b.t || a.d - b.d);
+      if (typed.length) {
+        const [best, next] = typed;
+        const confident = !next || (best.w && !next.w) || best.t < next.t;
+        return { results: typed.map((x) => ({ ...x.r, category: p.hint! })), confident };
+      }
+    }
+  }
+  if (!results.length && p.area) results = await searchPlaces(p.query, near);
+  const real = results.filter((r) => !NOT_A_PLACE.test(r.osm ?? ''));
+  results = real.length ? real : results;
+  if (p.hint) results = results.map((r) => ({ ...r, category: p.hint! }));
+  return { results, confident: false };
 }
 
 /** Kept for older callers: just the search phrases. */

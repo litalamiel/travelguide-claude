@@ -2,14 +2,27 @@ const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
 const EN = new Set('the and of to in is it for with you this that on my we our at best was are be from your all so one day place here must just trip food view can not have love'.split(' '));
 
-/** Rough check: does this caption read as English? */
+// Very common words in other languages travel captions are often written in.
+const OTHER = new Set(('de het een en van op met voor niet dit deze zijn naar vanaf mooie plek ' + // Dutch
+  'der die das und ist nicht mit für ein eine auf wir sehr ' + // German
+  'el la los las y es muy con para una por del que en ' + // Spanish
+  'o os as um uma não com para muito do da dos das em ' + // Portuguese
+  'il lo gli e è molto con per una che di ' + // Italian
+  'le les et est très avec pour une des du au dans nous').split(' '));
+const EN_ONLY = new Set([...EN].filter((w) => !OTHER.has(w)));
+
+/** Does any part of the caption read as another language? Mixed captions count. */
 export function looksNonEnglish(text: string): boolean {
   const body = text.replace(/#[\p{L}\d_]+|@[\w.]+|https?:\S+/gu, ' ');
   if (/[\p{Script=Hebrew}\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Greek}]/u.test(body)) return true;
-  const words = body.toLowerCase().match(/\p{L}+/gu) ?? [];
-  if (words.length < 6) return false;
-  const en = words.filter((w) => EN.has(w)).length;
-  return en / words.length < 0.08;
+  for (const line of body.split(/\n+/)) {
+    const words = line.toLowerCase().match(/\p{L}+/gu) ?? [];
+    if (words.length < 4) continue;
+    const other = words.filter((w) => OTHER.has(w)).length;
+    const en = words.filter((w) => EN_ONLY.has(w)).length;
+    if (other >= 2 && other > en) return true;
+  }
+  return false;
 }
 
 const LANGS: Record<string, string> = { pt: 'Portuguese', es: 'Spanish', it: 'Italian', fr: 'French', de: 'German', he: 'Hebrew', iw: 'Hebrew', nl: 'Dutch', ja: 'Japanese', ko: 'Korean', zh: 'Chinese', 'zh-CN': 'Chinese', ru: 'Russian', ar: 'Arabic', el: 'Greek', tr: 'Turkish', th: 'Thai', pl: 'Polish' };

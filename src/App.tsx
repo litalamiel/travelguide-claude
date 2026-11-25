@@ -350,7 +350,8 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
     const out = [];
     for (const p of analyzeCaption(text)) {
       const phrase = p.from === 'pin' ? `📍 ${p.query}${p.area ? `, ${p.area}` : ''}` : p.query;
-      try { out.push({ phrase, matches: (await findCaptionPlace(p, near)).slice(0, 3) }); } catch { out.push({ phrase, matches: [] }); }
+      // One confident match (right kind of place) is shown alone; otherwise the top 3.
+      try { const f = await findCaptionPlace(p, near); out.push({ phrase, matches: f.results.slice(0, f.confident ? 1 : 3) }); } catch { out.push({ phrase, matches: [] }); }
     }
     setFound(out);
     setBusy(false);
