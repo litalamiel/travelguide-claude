@@ -15,14 +15,54 @@ export interface SearchResult {
 
 // Photon (by Komoot) is a free, keyless OpenStreetMap geocoder. It is fine for a
 // prototype; for production we swap this for Google Places (see README).
+// Photon (OpenStreetMap search) is the main search. When it's down or busy, OpenStreetMap's
+// Nominatim is used instead: stricter (every word must match) and limited to one search a second.
+let photonDownUntil = 0;
+let nominatimQueue: Promise<unknown> = Promise.resolve();
+const nominatimSlot = () => {
+  const turn = nominatimQueue.then(() => new Promise((ok) => setTimeout(ok, 1100)));
+  nominatimQueue = turn;
+  return nominatimQueue;
+};
+
+async function searchNominatim(query: string, osmTags: string[], limit: number): Promise<SearchResult[]> {
+  await nominatimSlot();
+  const params = new URLSearchParams({ q: query, format: 'jsonv2', addressdetails: '1', limit: String(Math.min(limit * 2, 20)), 'accept-language': 'en' });
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
+  if (!res.ok) throw new Error(`Search failed (${res.status})`);
+  const rows: any[] = await res.json();
+  return rows.map((r) => {
+    const a = r.address ?? {};
+    const osm = `${r.category}:${r.type}`;
+    return {
+      name: r.name || String(r.display_name ?? query).split(',')[0],
+      address: [a.road, a.city ?? a.town ?? a.village ?? a.hamlet ?? a.municipality, a.country].filter(Boolean).join(', '),
+      lat: Number(r.lat), lng: Number(r.lon),
+      category: guessCategory(r.category, r.type),
+      osm, cc: a.country_code ? String(a.country_code).toUpperCase() : undefined,
+    } satisfies SearchResult;
+  }).filter((r) => !osmTags.length || osmTags.some((t) => r.osm === t || r.osm.startsWith(`${t}:`))).slice(0, limit);
+}
+
 export async function searchPlaces(query: string, near?: { lat: number; lng: number }, osmTags: string[] = [], limit = 6): Promise<SearchResult[]> {
+  if (Date.now() < photonDownUntil) return searchNominatim(query, osmTags, limit);
   const params = new URLSearchParams({ q: query, limit: String(limit), lang: 'en' });
   osmTags.forEach((t) => params.append('osm_tag', t));
   if (near) {
     params.set('lat', String(near.lat));
     params.set('lon', String(near.lng));
   }
-  const res = await fetch(`https://photon.komoot.io/api/?${params}`);
+  let res: Response;
+  try {
+    res = await fetch(`https://photon.komoot.io/api/?${params}`);
+  } catch {
+    photonDownUntil = Date.now() + 5 * 60_000;
+    return searchNominatim(query, osmTags, limit);
+  }
+  if (res.status === 429 || res.status >= 500) {
+    photonDownUntil = Date.now() + 5 * 60_000;
+    return searchNominatim(query, osmTags, limit);
+  }
   if (!res.ok) throw new Error(`Search failed (${res.status})`);
   const data = await res.json();
   return (data.features ?? []).map((f: any) => {
@@ -36,7 +76,7 @@ export async function searchPlaces(query: string, near?: { lat: number; lng: num
       lng,
       category: guessCategory(p.osm_key, p.osm_value),
       osm: `${p.osm_key}:${p.osm_value}`,
-      cc: p.countrycode,
+      cc: p.countrycode ? String(p.countrycode).toUpperCase() : undefined,
     } satisfies SearchResult;
   });
 }
@@ -63,7 +103,7 @@ const HINTS: [CategoryId, RegExp][] = [
   ['museums', /\b(museum|museu|museo|gallery|exhibition)\b|🖼️?/iu],
   ['nature', /\b(hike|hiking|trail|waterfall|national park|lake|canyon|forest|mountain|garden)\b|🥾|⛰️?|🌲|🏞️?/iu],
   ['shopping', /\b(market|shop(ping)?|boutique|store|mercado|souvenirs?)\b|🛍️?/iu],
-  ['experiences', /\b(tour|class|workshop|boat trip|cruise|surf(ing)? lesson|tickets?)\b|🎟️?|🚤/iu],
+  ['experiences', /\b(tour|class|workshop|boat trip|cruise|surf(ing)? lesson|tickets?|playgrounds?|adventure parks?|theme parks?|water ?parks?|amusement parks?|zoo|aquarium|cable ?cars?|gondola|zip ?lin(e|es|ing)|climbing|ropes? course|mountain ?carts?|toboggan|summer sled\w*|rafting|canyoning|paragliding|kayak\w*|activities|activity|attractions?|for (the )?kids|kids club)\b|\berlebnis\w*|🎟️?|🚤|🎢|🎡|🛝|🚠/iu],
   ['sights', /\b(castle|palace|pal[aá]cio|church|cathedral|monastery|temple|tower|monument|old town)\b|🏰|🏛️?|⛪/iu],
 ];
 const GENERIC_TAG = /travel|reels?|explore|fyp|viral|trip|vacation|holiday|wanderlust|food|insta|love|photo|life|gifted|ad\b|thank|family|kids?|summer|winter|weekend|happy|style|vibes?|goals/i;
@@ -81,6 +121,17 @@ export function hintFromTag(tag: string): CategoryId | undefined {
 export function hintFrom(text: string): CategoryId | undefined {
   for (const [id, re] of HINTS) if (re.test(text)) return id;
   return undefined;
+}
+
+/** For a whole caption: the kind of place mentioned most ("hotels" once vs playgrounds, cable cars, ziplining…). */
+export function hintFromMost(text: string): CategoryId | undefined {
+  let best: CategoryId | undefined;
+  let most = 0;
+  for (const [id, re] of HINTS) {
+    const n = (text.match(new RegExp(re.source, 'giu')) ?? []).length;
+    if (n > most) { most = n; best = id; }
+  }
+  return best;
 }
 
 const PIN = /(?:📍|📌|🗺️?)/u;
@@ -101,11 +152,11 @@ export function analyzeCaption(caption: string): CaptionPlace[] {
     seen.add(k); out.push(p);
   };
   const lines = caption.split(/\n+/);
-  const wholeHint = hintFrom(caption);
+  const wholeHint = hintFromMost(caption);
 
-  for (const line of lines) {
+  lines.forEach((line, li) => {
     const m = line.split(PIN);
-    if (m.length < 2) continue;
+    if (m.length < 2) return;
     for (const seg of m.slice(1)) {
       // "📍 Hotel X, Lisbon | more text" → place "Hotel X", area "Lisbon"
       const parts = seg.split(/\s[|–—]\s|#|\s-\s|•|·/u);
@@ -119,9 +170,12 @@ export function analyzeCaption(caption: string): CaptionPlace[] {
         add({ query: named[0], area: text, hint: hintFrom(after), from: 'pin' });
         continue;
       }
-      add({ query: place, area: rest.join(', ') || undefined, hint: hintFrom(line) ?? hintFrom(place), from: 'pin' });
+      // "📍 Erlebnisberg Spieljoch" with the area on the next line ("Zillertal, Fügen").
+      const next = lines[li + 1]?.trim() ?? '';
+      const nextArea = !rest.length && m.length === 2 && next.length > 2 && next.length <= 40 && !PIN.test(next) && !/[#@.!?:]/.test(next) && !hintFrom(next) && next.split(/[\s,]+/).filter(Boolean).every((w) => /^\p{Lu}/u.test(w) || /^(am|an|im|de|da|do|di|del|la|le|of|sur|sul)$/.test(w)) ? clean(next) : undefined;
+      add({ query: place, area: rest.join(', ') || nextArea, hint: hintFrom(line) ?? hintFrom(place), from: 'pin' });
     }
-  }
+  });
   const pins = [...out];
   // "at X" / "in X" is a strong signal even with pins ("📍 Lisbon … dinner at Taberna X").
   for (const line of lines) {
@@ -179,7 +233,7 @@ const OSM_TAGS: Partial<Record<CategoryId, string[]>> = {
   nature: ['leisure:park', 'leisure:nature_reserve', 'boundary:national_park', 'natural:peak', 'waterway:waterfall'],
   shopping: ['shop', 'amenity:marketplace'],
   sights: ['tourism:attraction', 'historic', 'tourism:artwork'],
-  experiences: ['tourism:theme_park', 'tourism:zoo', 'leisure:water_park'],
+  experiences: ['tourism:theme_park', 'leisure:playground', 'landuse:winter_sports', 'tourism:attraction', 'aerialway', 'leisure:water_park', 'tourism:zoo', 'tourism:aquarium', 'leisure:park', 'leisure:sports_centre'],
 };
 const tagRank = (tags: string[], osm = '') => { const i = tags.findIndex((t) => osm === t || osm.startsWith(`${t}:`)); return i < 0 ? 99 : i; };
 // Streets and plain areas are rarely what a reel is about.
@@ -197,7 +251,7 @@ const COUNTRIES: Record<string, string> = {
   ireland: 'IE', israel: 'IL', usa: 'US', 'united states': 'US', mexico: 'MX', japan: 'JP', thailand: 'TH', indonesia: 'ID', bali: 'ID',
   morocco: 'MA', turkey: 'TR', turkiye: 'TR', norway: 'NO', sweden: 'SE', denmark: 'DK', iceland: 'IS', slovenia: 'SI', czechia: 'CZ',
 };
-const countryOf = (area?: string) => {
+export const countryOf = (area?: string) => {
   if (!area) return undefined;
   const parts = norm(area).split(/,\s*/).map((x) => x.trim());
   for (const part of parts.reverse()) if (COUNTRIES[part]) return COUNTRIES[part];
@@ -275,6 +329,24 @@ export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; ln
         const [best, next] = typed;
         const confident = !next || (best.w && !next.w) || best.t < next.t;
         return { results: label(typed.map((x) => x.r)), confident };
+      }
+    }
+  }
+  // 4. A word the map doesn't use ("Erlebnisberg Spieljoch" is mapped as "Spieljoch"): drop the first or last word.
+  const words = p.query.split(/\s+/);
+  if (!all.length && words.length >= 2) {
+    for (const v of [words.slice(1).join(' '), words.slice(0, -1).join(' ')]) {
+      if (!keyWords(v).some((w) => w.length >= 5)) continue;
+      let rs = (await searchPlaces(area ? `${v}, ${area}` : v, near, [], 10)).filter(inCountry);
+      if (!rs.length && area) rs = (await searchPlaces(v, near, [], 10)).filter(inCountry);
+      const ok = rs.filter((r) => nameHas(r.name, v) && !/^(highway|place|boundary):/.test(r.osm ?? ''))
+        .map((r) => ({ r, s: nameScore(r.name, p.query), t: tags ? tagRank(tags, r.osm) : 0 }))
+        .sort((a, b) => a.t - b.t || b.s - a.s);
+      if (ok.length) {
+        const sure = ok.length === 1 || (ok[0].t < 99 && ok[0].t < ok[1].t);
+        const rsOut = label(ok.map((x) => x.r));
+        if (sure) rsOut[0] = { ...rsOut[0], name: p.query };
+        return { results: rsOut, confident: sure };
       }
     }
   }

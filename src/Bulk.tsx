@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { categoryById } from './categories';
-import { analyzeCaption, findCaptionPlace, type SearchResult } from './geocode';
+import { analyzeCaption, countryOf, findCaptionPlace, type SearchResult } from './geocode';
 import type { Place } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
@@ -85,6 +85,12 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
     // Map searches go one at a time (the free map search limits how fast we can ask).
     let searchQueue = Promise.resolve();
     const search = <T,>(fn: () => Promise<T>) => { const p = searchQueue.then(fn); searchQueue = p.then(() => undefined, () => undefined); return p; };
+    const batchCountry = countryOf(batch.name);
+    const countries = new Map<string, number>();
+    const mainCountry = () => {
+      const [top] = [...countries.entries()].sort((a, b) => b[1] - a[1]);
+      return top && top[1] >= 2 ? top[0] : undefined;
+    };
     const readOne = async (code: string) => {
       patch(code, { status: 'reading' });
       try {
@@ -93,18 +99,29 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
         if (stop) return;
         if (!r.ok || !data.caption) { patch(code, { status: 'failed' }); return; }
         const found: BulkPlace[] = [];
-        for (const p of analyzeCaption(data.caption).slice(0, 4)) {
+        for (const p0 of analyzeCaption(data.caption).slice(0, 4)) {
+          // A collection named after a country ("austria") keeps matches in that country.
+          const p = !countryOf(p0.area) && batchCountry ? { ...p0, area: [p0.area, batch.name].filter(Boolean).join(', ') } : p0;
           try {
             const f = await search(() => findCaptionPlace(p, nearRef.current));
             if (stop) return;
-            if (f.results.length) {
-              found.push({ key: `${code}:${p.query}`, code, phrase: p.query, matches: f.results.slice(0, f.confident ? 1 : 3), choice: 0, sure: f.confident, keep: f.confident });
+            let results = f.results;
+            // Otherwise, unsure matches prefer the country most of the collection's clear matches are in.
+            const main = mainCountry();
+            if (!f.confident && main && !countryOf(p.area)) {
+              const inMain = results.filter((r) => r.cc === main);
+              results = inMain.length ? inMain : results;
+            }
+            if (f.confident && results[0]?.cc) countries.set(results[0].cc, (countries.get(results[0].cc) ?? 0) + 1);
+            if (results.length) {
+              found.push({ key: `${code}:${p.query}`, code, phrase: p.query, matches: results.slice(0, f.confident ? 1 : 3), choice: 0, sure: f.confident, keep: f.confident });
             }
           } catch { /* skip this phrase */ }
         }
         patch(code, { status: found.length ? 'done' : 'none', data });
         // The same place from two reels is kept once.
-        setPlaces((ps) => [...ps, ...found.filter((f) => !ps.some((q) => q.matches[q.choice].name === f.matches[0].name && Math.abs(q.matches[q.choice].lat - f.matches[0].lat) < 0.002))]);
+        const near = (a: SearchResult, b: SearchResult) => Math.abs(a.lat - b.lat) < 0.003 && Math.abs(a.lng - b.lng) < 0.004;
+        setPlaces((ps) => [...ps, ...found.filter((f, i) => !ps.some((q) => near(q.matches[q.choice], f.matches[0])) && !found.slice(0, i).some((q) => near(q.matches[0], f.matches[0])))]);
       } catch {
         if (!stop) patch(code, { status: 'failed' });
       }
