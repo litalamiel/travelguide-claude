@@ -167,7 +167,74 @@ function CatIcon({ id, size = 30 }: { id: CategoryId; size?: number }) {
   );
 }
 
-export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, onFocus, onAdd, onClose }: {
+/** Where bulk-imported places go: an existing map, or a new one with this name. */
+export type BulkTarget = { mapId: string } | { newName: string };
+
+/** "Add to map" picker above the Add button. Starts on a map named like the collection, or a new map with that name. */
+function MapPicker({ maps, target, onChange, collection }: {
+  maps: { id: string; name: string; count: number }[];
+  target: BulkTarget;
+  onChange: (t: BulkTarget) => void;
+  collection: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  const existing = 'mapId' in target ? maps.find((m) => m.id === target.mapId) : undefined;
+  const isNew = 'newName' in target;
+  const sameAsCollection = maps.some((m) => m.name.trim().toLowerCase() === collection.trim().toLowerCase());
+  return (
+    <div className="mpick" ref={ref}>
+      <div className="mpick__label">Add to map</div>
+      {naming ? (
+        <form className="mpick__name" onSubmit={(e) => { e.preventDefault(); if (name.trim()) { onChange({ newName: name.trim() }); setNaming(false); } }}>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Name the new map" aria-label="New map name" />
+          <button className="btn btn--small btn--primary" disabled={!name.trim()}>OK</button>
+          <button type="button" className="btn btn--small" onClick={() => setNaming(false)}>Cancel</button>
+        </form>
+      ) : (
+        <button type="button" className="mpick__btn" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+          <span>
+            <b>{isNew ? `New map: “${target.newName}”` : existing?.name}</b>
+            <small>{isNew ? (target.newName === collection ? 'Named after the collection' : 'A new map') : `${existing?.count ?? 0} ${existing?.count === 1 ? 'place' : 'places'} already`}</small>
+          </span>
+          <span aria-hidden="true">▾</span>
+        </button>
+      )}
+      {open && (
+        <div className="mpick__menu" role="listbox" aria-label="Choose a map">
+          {!sameAsCollection && (
+            <button type="button" role="option" aria-selected={isNew && target.newName === collection} className={isNew && target.newName === collection ? 'is-on' : ''}
+              onClick={() => { onChange({ newName: collection }); setOpen(false); }}>
+              <span>{isNew && target.newName === collection ? '✓ ' : ''}New map: “{collection}”</span>
+            </button>
+          )}
+          {maps.map((m) => {
+            const on = !isNew && existing?.id === m.id;
+            return (
+              <button type="button" role="option" aria-selected={on} key={m.id} className={on ? 'is-on' : ''} onClick={() => { onChange({ mapId: m.id }); setOpen(false); }}>
+                <span>{on ? '✓ ' : ''}{m.name}</span><small>{m.count} {m.count === 1 ? 'place' : 'places'}</small>
+              </button>
+            );
+          })}
+          <button type="button" className="mpick__new" onClick={() => { setName(''); setNaming(true); setOpen(false); }}>＋ New map with another name…</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, onFocus, onAdd, onClose, maps, target, onTarget }: {
+  maps: { id: string; name: string; count: number }[];
+  target: BulkTarget;
+  onTarget: (t: BulkTarget) => void;
   batch: ReelBatch;
   reels: BulkReel[];
   places: BulkPlace[];
@@ -242,7 +309,10 @@ export function BulkReview({ batch, reels, places, setPlaces, setReels, focus, o
           )}
         </div>
         <div className="bulk__foot">
-          <button className="btn btn--primary" disabled={!keep} onClick={onAdd}>Add {keep} {keep === 1 ? 'place' : 'places'} to map</button>
+          <MapPicker maps={maps} target={target} onChange={onTarget} collection={batch.name} />
+          <button className="btn btn--primary" disabled={!keep} onClick={onAdd}>
+            Add {keep} {keep === 1 ? 'place' : 'places'} to “{'newName' in target ? target.newName : maps.find((m) => m.id === target.mapId)?.name}”
+          </button>
         </div>
       </aside>
       {open && (

@@ -10,7 +10,7 @@ import { arrangeMeals } from './timeline';
 import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, PlaceDetail } from './Place';
 import { englishFor, keyFrames } from './reel';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
-import { BulkReview, CollectionImport, batchFromHash, collectionFrom, toPlaces, useBulkReader, type ReelBatch } from './Bulk';
+import { BulkReview, CollectionImport, batchFromHash, collectionFrom, toPlaces, useBulkReader, type BulkTarget, type ReelBatch } from './Bulk';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -161,9 +161,28 @@ export default function App() {
     const m = p.matches[p.choice];
     return { key: p.key, lat: m.lat, lng: m.lng, category: p.category ?? m.category, sure: p.sure || p.matches.length === 1, keep: p.keep, name: m.name };
   }), [bulkReader.places]);
+  // Where the reviewed places go. Starts on a map with the collection's name, or a new map named after it.
+  const [bulkTarget, setBulkTarget] = useState<BulkTarget>({ newName: 'Imported reels' });
+  useEffect(() => {
+    if (!batch) return;
+    const same = maps.find((m) => m.name.trim().toLowerCase() === batch.name.trim().toLowerCase());
+    setBulkTarget(same ? { mapId: same.id } : { newName: batch.name });
+    // Only when a new collection arrives, not on every map change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch]);
   const addBulk = () => {
     const add = toPlaces(bulkReader.places, bulkReader.reels, uid);
-    setPlaces((ps) => [...ps, ...add]);
+    const t = bulkTarget;
+    let id: string;
+    if ('newName' in t) {
+      const m = newMap(t.newName, add);
+      id = m.id;
+      setMaps((ms) => [...ms, m]);
+    } else {
+      id = t.mapId;
+      setMaps((ms) => ms.map((m) => (m.id === id ? { ...m, places: [...m.places, ...add] } : m)));
+    }
+    setMapId(id); setTripId(undefined); setActiveDay(undefined); setSelectedId(undefined);
     setBatch(undefined); setBulkFocus(undefined); setCats([]);
     if (add[0]) setFlyTo({ lat: add[0].lat, lng: add[0].lng, key: Date.now() });
   };
@@ -237,6 +256,7 @@ export default function App() {
           <BulkReview batch={batch} reels={bulkReader.reels} places={bulkReader.places} setPlaces={bulkReader.setPlaces} setReels={bulkReader.setReels}
             focus={bulkFocus}
             onFocus={(k) => { setBulkFocus(k); const p = k ? bulkPins.find((x) => x.key === k) : undefined; if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() }); }}
+            maps={maps.map((m) => ({ id: m.id, name: m.name, count: m.places.length }))} target={bulkTarget} onTarget={setBulkTarget}
             onAdd={addBulk} onClose={() => { setBatch(undefined); setBulkFocus(undefined); }} />
         )}
         {storageWarning && <div className="toast" role="status">This browser is out of storage space, so recent changes may not be saved. Remove some photos to free space.</div>}
