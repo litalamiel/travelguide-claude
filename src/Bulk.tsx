@@ -4,6 +4,7 @@ import { Carousel } from './Place';
 import { englishFor, keyFrames } from './reel';
 import { analyzeCaption, countryOf, findCaptionPlace, type SearchResult } from './geocode';
 import type { CategoryId, Place } from './types';
+import { smartGuess, teach, type LessonDraft } from './learn';
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
 
@@ -72,6 +73,10 @@ export interface BulkPlace {
   weak?: boolean;
   /** Category the user chose instead of the one we guessed. */
   category?: CategoryId;
+  /** How the first suggestion was found, for the learning memory. */
+  method?: LessonDraft['method'];
+  ai?: LessonDraft['ai'];
+  captionEn?: string;
 }
 export interface BulkReel { code: string; status: 'waiting' | 'reading' | 'done' | 'none' | 'failed'; data?: ReelData; frames?: string[]; framesState?: 'loading' | 'done' | 'none' }
 
@@ -105,8 +110,15 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
         if (stop) return;
         if (!r.ok || !data.caption) { patch(code, { status: 'failed' }); return; }
         const found: BulkPlace[] = [];
+        // The learned guess first: a reel people already confirmed, or Claude's reading.
+        const smart = await smartGuess({ code, caption: data.caption, author: data.author, images: data.images ?? [] }, nearRef.current, search).catch(() => undefined);
+        if (stop) return;
         const english = await englishFor(data.caption);
-        for (const p0 of analyzeCaption(data.caption, english).slice(0, 4)) {
+        const ai = smart?.ai;
+        if (smart?.results.length) {
+          found.push({ key: `${code}:${smart.results[0].name}`, code, phrase: smart.results[0].name, matches: smart.results, choice: 0, sure: smart.sure, keep: smart.sure, method: smart.method, ai, captionEn: english });
+        }
+        for (const p0 of smart?.sure ? [] : analyzeCaption(data.caption, english).slice(0, 4)) {
           // A collection named after a country ("austria") keeps matches in that country.
           const p = !countryOf(p0.area) && batchCountry ? { ...p0, area: [p0.area, batch.name].filter(Boolean).join(', ') } : p0;
           try {
@@ -121,12 +133,15 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
             }
             if (f.confident && results[0]?.cc) countries.set(results[0].cc, (countries.get(results[0].cc) ?? 0) + 1);
             if (results.length) {
-              found.push({ key: `${code}:${p.query}`, code, phrase: p.query, matches: results.slice(0, f.confident ? 1 : 3), choice: 0, sure: f.confident, keep: f.confident, weak: p.from === 'name' || p.from === 'hashtag' });
+              found.push({ key: `${code}:${p.query}`, code, phrase: p.query, matches: results.slice(0, f.confident ? 1 : 3), choice: 0, sure: f.confident, keep: f.confident, weak: p.from === 'name' || p.from === 'hashtag', method: 'rules', ai, captionEn: english });
             }
           } catch { /* skip this phrase */ }
         }
         // Loose guesses (a capitalised word, a hashtag) are dropped when the reel already has a clear place.
         // With only loose guesses, the first clear one is the reel's subject.
+        // The learned guess counts as a clear place; the rules' extra finds are dropped when they repeat it.
+        const near0 = (a: SearchResult, b: SearchResult) => Math.abs(a.lat - b.lat) < 0.003 && Math.abs(a.lng - b.lng) < 0.004;
+        if (smart?.results.length) found.splice(1, found.length - 1, ...found.slice(1).filter((f) => !near0(f.matches[0], smart.results[0])));
         if (found.length && found.every((f) => f.weak)) { const first = found.find((f) => f.sure); if (first) found.splice(0, found.length, first); }
         else if (found.some((f) => f.sure)) found.splice(0, found.length, ...found.filter((f) => f.sure || !f.weak));
         patch(code, { status: found.length ? 'done' : 'none', data });
@@ -143,6 +158,19 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
     return () => { stop = true; };
   }, [batch]);
   return { reels, places, setPlaces, setReels };
+}
+
+/** Send every reviewed place to the learning memory: kept ones with what the user chose, the rest as turned down. */
+export function teachBulk(places: BulkPlace[], reels: BulkReel[]) {
+  for (const p of places) {
+    const d = reels.find((r) => r.code === p.code)?.data ?? {};
+    const m = p.matches[p.choice];
+    const draft: LessonDraft = {
+      shortcode: p.code, author: d.author, caption: d.caption, captionEn: p.captionEn, cover: d.images?.[0],
+      method: p.method ?? 'rules', guess: p.matches[0], ai: p.ai, flow: 'bulk',
+    };
+    teach(draft, p.keep && m ? { ...m, category: p.category ?? m.category } : undefined);
+  }
 }
 
 /** Turn the kept places into map places. */
