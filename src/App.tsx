@@ -30,7 +30,9 @@ export default function App() {
   const [mapsOpen, setMapsOpen] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
   const [buyerOpen, setBuyerOpen] = useState(false);
-  const [filter, setFilter] = useState<'all' | CategoryId>('all');
+  // Several categories can be on at once; none selected means show everything.
+  const [cats, setCats] = useState<CategoryId[]>([]);
+  const toggleCat = (id: CategoryId) => setCats((cs) => (cs.includes(id) ? cs.filter((c) => c !== id) : [...cs, id]));
   const [selectedId, setSelectedId] = useState<string>();
   const [center, setCenter] = useState({ lat: 38.71, lng: -9.16 });
   const [flyTo, setFlyTo] = useState<{ lat: number; lng: number; key: number }>();
@@ -52,7 +54,7 @@ export default function App() {
   useEffect(() => setStorageWarning(!saveMaps(maps)), [maps]);
 
   const switchMap = (id: string) => {
-    setMapId(id); setTripId(undefined); setActiveDay(undefined); setSelectedId(undefined); setFilter('all'); setMapsOpen(false);
+    setMapId(id); setTripId(undefined); setActiveDay(undefined); setSelectedId(undefined); setCats([]); setMapsOpen(false);
     const m = maps.find((x) => x.id === id);
     if (m?.places.length) {
       const lat = m.places.reduce((s, p) => s + p.lat, 0) / m.places.length;
@@ -89,7 +91,7 @@ export default function App() {
     return c;
   }, [places]);
 
-  const visible = filter === 'all' ? places : places.filter((p) => p.category === filter);
+  const visible = cats.length ? places.filter((p) => cats.includes(p.category)) : places;
   const selected = places.find((p) => p.id === selectedId);
   const cardsRef = useRef<HTMLDivElement>(null);
 
@@ -114,7 +116,7 @@ export default function App() {
     const p: Place = { ...pending, id: uid() };
     setPlaces((ps) => [...ps, p]);
     setPending(undefined);
-    setFilter('all');
+    setCats((cs) => (cs.length && !cs.includes(p.category) ? [...cs, p.category] : cs));
     setSelectedId(p.id);
   };
 
@@ -163,15 +165,15 @@ export default function App() {
           </button>
         </div>
         <nav className="cats" aria-label="Categories">
-          <button className={'cat' + (filter === 'all' ? ' cat--on' : '')} onClick={() => setFilter('all')} aria-pressed={filter === 'all'}>
-            <span className="cat__icon" style={{ background: filter === 'all' ? '#0f766e' : '#ccfbf1', color: filter === 'all' ? '#fff' : '#0f766e' }}>
+          <button className={'cat' + (!cats.length ? ' cat--on' : '')} onClick={() => setCats([])} aria-pressed={!cats.length}>
+            <span className="cat__icon" style={{ background: !cats.length ? '#0f766e' : '#ccfbf1', color: !cats.length ? '#fff' : '#0f766e' }}>
               <Icon d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
             </span>
             All <span className="cat__n">{counts.all}</span>
           </button>
           {CATEGORIES.map((c) => (
-            <button key={c.id} className={'cat' + (filter === c.id ? ' cat--on' : '')} onClick={() => { setFilter(c.id); setTripId(undefined); }} aria-pressed={filter === c.id}>
-              <span className="cat__icon" style={{ background: filter === c.id ? c.color : c.tint, color: filter === c.id ? '#fff' : c.color }}><Icon d={c.icon} /></span>
+            <button key={c.id} className={'cat' + (cats.includes(c.id) ? ' cat--on' : '')} onClick={() => { toggleCat(c.id); setTripId(undefined); }} aria-pressed={cats.includes(c.id)}>
+              <span className="cat__icon" style={{ background: cats.includes(c.id) ? c.color : c.tint, color: cats.includes(c.id) ? '#fff' : c.color }}><Icon d={c.icon} /></span>
               {c.label} <span className="cat__n">{counts[c.id] ?? 0}</span>
             </button>
           ))}
@@ -216,7 +218,7 @@ export default function App() {
             })}
           </div>
         )}
-        {!plan && visible.length === 0 && <div className="empty">No {filter === 'all' ? '' : categoryById(filter as CategoryId).label.toLowerCase() + ' '}places yet. Search above to add one.</div>}
+        {!plan && visible.length === 0 && <div className="empty">{cats.length ? `No ${cats.map((c) => categoryById(c).label.toLowerCase()).join(' or ')} places yet.` : 'No places yet.'} Search above to add one.</div>}
 
         {selected && !plan && !pending && (
           <PlaceDetail key={selected.id} place={selected} onUpdate={(patch) => update(selected.id, patch)} onRemove={() => remove(selected.id)} onClose={() => setSelectedId(undefined)} />
