@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
-import type { DayPlan, PendingPlace, Place } from './types';
+import type { CategoryId, DayPlan, PendingPlace, Place } from './types';
 import { categoryById } from './categories';
 
 // Free OpenStreetMap vector tiles from OpenFreeMap — no API key, live and zoomable.
@@ -18,9 +18,16 @@ interface Props {
   flyTo?: { lat: number; lng: number; key: number };
   preview?: PendingPlace;
   onPreviewMove?: (lat: number, lng: number) => void;
+  /** Places found while importing many reels: solid = clear match, dashed = needs a pick, faded = not kept. */
+  bulk?: { key: string; lat: number; lng: number; category: CategoryId; sure: boolean; keep: boolean; name: string }[];
+  bulkFocus?: string;
+  onBulkSelect?: (key: string) => void;
 }
 
-export default function MapView({ places, selectedId, onSelect, onCenterChange, plan, activeDay, flyTo, preview, onPreviewMove }: Props) {
+export default function MapView({ places, selectedId, onSelect, onCenterChange, plan, activeDay, flyTo, preview, onPreviewMove, bulk, bulkFocus, onBulkSelect }: Props) {
+  const bulkMarkers = useRef<maplibregl.Marker[]>([]);
+  const bulkSelect = useRef(onBulkSelect);
+  bulkSelect.current = onBulkSelect;
   const previewMarker = useRef<maplibregl.Marker>();
   const moveRef = useRef(onPreviewMove);
   moveRef.current = onPreviewMove;
@@ -79,6 +86,34 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
       return new maplibregl.Marker({ element: btn, anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(m);
     });
   }, [places, selectedId, plan, activeDay, onSelect]);
+
+  // Bulk import pins
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    bulkMarkers.current.forEach((mk) => mk.remove());
+    bulkMarkers.current = (bulk ?? []).map((b) => {
+      const c = categoryById(b.category);
+      const btn = document.createElement('button');
+      btn.className = 'pin pin--bulk' + (b.sure ? '' : ' pin--unsure') + (b.keep ? '' : ' pin--off') + (b.key === bulkFocus ? ' pin--selected' : '');
+      btn.setAttribute('aria-label', `${b.name}, ${c.label}${b.sure ? '' : ', needs a pick'}`);
+      btn.innerHTML = `<span class="pin__shape" style="background:${b.sure || b.keep ? c.color : '#fff'};${b.sure || b.keep ? '' : `border-color:${c.color}`}"></span><span class="pin__inner"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${b.sure || b.keep ? '#fff' : c.color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${c.icon}"/></svg></span>`;
+      btn.addEventListener('click', (e) => { e.stopPropagation(); bulkSelect.current?.(b.key); });
+      return new maplibregl.Marker({ element: btn, anchor: 'bottom' }).setLngLat([b.lng, b.lat]).addTo(m);
+    });
+  }, [bulk, bulkFocus]);
+
+  // Keep every found place in view while reels are being read.
+  const bulkCount = bulk?.length ?? 0;
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !bulk?.length) return;
+    const b = new maplibregl.LngLatBounds();
+    bulk.forEach((p) => b.extend([p.lng, p.lat]));
+    const phone = window.innerWidth <= 720;
+    m.fitBounds(b, { padding: phone ? { top: 60, bottom: Math.round(window.innerHeight * 0.5), left: 40, right: 40 } : { top: 80, bottom: 80, left: 420, right: 80 }, maxZoom: 13, duration: 600 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkCount]);
 
   // Day routes
   useEffect(() => {

@@ -239,7 +239,7 @@ export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; ln
     .map((r) => ({ r, s: nameScore(r.name, p.query), t: tags ? tagRank(tags, r.osm) : 0 }))
     .filter((x) => x.s >= 0.5)
     .sort((a, b) => b.s - a.s || a.t - b.t);
-  const clear = (xs: { s: number; t: number }[]) => xs.length > 0 && (xs.length === 1 || xs[0].s - xs[1].s >= 0.2 || (xs[0].s === xs[1].s && xs[0].t < xs[1].t) || xs[0].s === 1);
+  const clear = (xs: { s: number; t: number }[]) => xs.length > 0 && (xs.length === 1 || xs[0].s - xs[1].s >= 0.2 || (xs[0].s === xs[1].s && xs[0].t < xs[1].t) || (xs[0].s === 1 && xs[1].s < 1));
 
   // 1. The right kind of place with a matching name.
   if (tags) {

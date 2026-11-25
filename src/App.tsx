@@ -10,6 +10,7 @@ import { arrangeMeals } from './timeline';
 import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, PlaceDetail } from './Place';
 import { keyFrames } from './reel';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
+import { BulkReview, CollectionImport, batchFromHash, collectionFrom, toPlaces, useBulkReader, type ReelBatch } from './Bulk';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -122,6 +123,51 @@ export default function App() {
     setSelectedId(p.id);
   };
 
+  // Many reels at once (a saved collection sent by the bookmark), reviewed on the map.
+  const [batch, setBatch] = useState<ReelBatch>();
+  const [sentElsewhere, setSentElsewhere] = useState(false);
+  const [bulkFocus, setBulkFocus] = useState<string>();
+  const bulkReader = useBulkReader(batch, center);
+  useEffect(() => {
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('travel-maps-import') : undefined;
+    // A tab that's waiting for the collection (Import reel is open) takes the reels.
+    if (channel) channel.onmessage = (e) => {
+      if (e.data?.type === 'batch' && (window as unknown as { __tmWaiting?: boolean }).__tmWaiting) {
+        channel.postMessage({ type: 'taken', id: e.data.id });
+        setPanel('none'); setPending(undefined); setTripId(undefined); setSelectedId(undefined);
+        setBatch(e.data.batch);
+      }
+    };
+    const take = () => {
+      const b = batchFromHash(window.location.hash);
+      if (!b) return;
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+      if (!channel) { setBatch(b); return; }
+      const id = Math.random().toString(36).slice(2);
+      let taken = false;
+      const listen = (e: MessageEvent) => { if (e.data?.type === 'taken' && e.data.id === id) taken = true; };
+      channel.addEventListener('message', listen);
+      channel.postMessage({ type: 'batch', id, batch: b });
+      setTimeout(() => {
+        channel.removeEventListener('message', listen);
+        if (taken) { setSentElsewhere(true); window.close(); } else setBatch(b);
+      }, 500);
+    };
+    take();
+    window.addEventListener('hashchange', take);
+    return () => { window.removeEventListener('hashchange', take); channel?.close(); };
+  }, []);
+  const bulkPins = useMemo(() => bulkReader.places.map((p) => {
+    const m = p.matches[p.choice];
+    return { key: p.key, lat: m.lat, lng: m.lng, category: m.category, sure: p.sure || p.matches.length === 1, keep: p.keep, name: m.name };
+  }), [bulkReader.places]);
+  const addBulk = () => {
+    const add = toPlaces(bulkReader.places, bulkReader.reels, uid);
+    setPlaces((ps) => [...ps, ...add]);
+    setBatch(undefined); setBulkFocus(undefined); setCats([]);
+    if (add[0]) setFlyTo({ lat: add[0].lat, lng: add[0].lng, key: Date.now() });
+  };
+
   const update = (id: string, patch: Partial<Place>) => setPlaces((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   const remove = (id: string) => { setPlaces((ps) => ps.filter((p) => p.id !== id)); setSelectedId(undefined); setTripId(undefined); };
 
@@ -183,12 +229,20 @@ export default function App() {
       </header>
 
       <main className="stage">
-        <MapView places={mapPlaces} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo}
-          preview={pending} onPreviewMove={(lat, lng) => setPending((p) => (p ? { ...p, lat, lng } : p))} />
+        <MapView places={batch ? [] : mapPlaces} selectedId={selectedId} onSelect={select} onCenterChange={setCenter} plan={plan} activeDay={activeDay} flyTo={flyTo}
+          preview={pending} onPreviewMove={(lat, lng) => setPending((p) => (p ? { ...p, lat, lng } : p))}
+          bulk={batch ? bulkPins : undefined} bulkFocus={bulkFocus} onBulkSelect={setBulkFocus} />
+        {sentElsewhere && <div className="toast" role="status">Sent the reels to your other Travel Maps tab. You can close this one.</div>}
+        {batch && (
+          <BulkReview batch={batch} reels={bulkReader.reels} places={bulkReader.places} setPlaces={bulkReader.setPlaces}
+            focus={bulkFocus}
+            onFocus={(k) => { setBulkFocus(k); const p = bulkPins.find((x) => x.key === k); if (p) setFlyTo({ lat: p.lat, lng: p.lng, key: Date.now() }); }}
+            onAdd={addBulk} onClose={() => { setBatch(undefined); setBulkFocus(undefined); }} />
+        )}
         {storageWarning && <div className="toast" role="status">This browser is out of storage space, so recent changes may not be saved. Remove some photos to free space.</div>}
         {pending && <ConfirmPlace pending={pending} onChange={setPending} onCancel={() => setPending(undefined)} onAdd={confirmPending} />}
 
-        {!plan && !pending && (
+        {!plan && !pending && !batch && (
           <div className="fabs">
             {trips.length > 0 && <button className="fab fab--light" onClick={() => setTripsOpen(true)}>My trips ({trips.length})</button>}
             <button className="fab" onClick={() => setPanel('plan')} disabled={!places.length}>
@@ -197,7 +251,7 @@ export default function App() {
           </div>
         )}
 
-        {!plan && !pending && visible.length > 0 && (
+        {!plan && !pending && !batch && visible.length > 0 && (
           <div className="cards" ref={cardsRef}>
             {visible.map((p) => {
               const c = categoryById(p.category);
@@ -349,6 +403,13 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
   const [found, setFound] = useState<{ phrase: string; matches: SearchResult[] }[]>();
   const [added, setAdded] = useState<Set<string>>(new Set());
   const caption = reel.caption ?? '';
+  const collection = collectionFrom(url);
+  // While a collection link is showing, this tab takes the reels the bookmark sends back.
+  useEffect(() => {
+    const w = window as unknown as { __tmWaiting?: boolean };
+    w.__tmWaiting = !!collection;
+    return () => { w.__tmWaiting = false; };
+  }, [!!collection]);
 
   const framesRef = useRef<Promise<string[]>>();
   const infoRef = useRef<{ reel: ReelInfo; images: string[]; note: string }>({ reel: {}, images: [], note: '' });
@@ -423,10 +484,11 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
           <h2>Import from an Instagram reel</h2>
           <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon d="M6 6l12 12M18 6L6 18" /></button>
         </div>
-        <label className="field">Paste a reel link
+        <label className="field">Paste a reel link, or a saved collection link on a computer
           <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.instagram.com/reel/…" autoFocus />
         </label>
-        {url.trim() && !isReelLink(url.trim()) && <p className="warn small">That doesn’t look like an Instagram reel link.</p>}
+        {collection && <CollectionImport link={collection} />}
+        {url.trim() && !collection && !isReelLink(url.trim()) && <p className="warn small">That doesn’t look like an Instagram reel or saved-collection link.</p>}
         {status === 'reading' && <p className="muted small">Reading the reel…</p>}
         {status === 'read' && (
           <div className="caption-box">
