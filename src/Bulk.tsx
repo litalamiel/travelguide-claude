@@ -157,7 +157,7 @@ export function BulkReview({ batch, reels, places, setPlaces, focus, onFocus, on
     <aside className="bulk" aria-label={`Review reels from ${batch.name}`}>
       <div className="bulk__head">
         <div>
-          <h2>{batch.name} · {reels.length} reels</h2>
+          <h2>{batch.name} · {reels.length} {reels.length === 1 ? 'reel' : 'reels'}</h2>
           <div className="muted small">
             {reading ? `Reading ${doneCount} of ${reels.length} · ` : ''}{places.length} found{toPick ? ` · ${toPick} to pick` : ''}{nothing.length ? ` · ${nothing.length} with no place` : ''}
           </div>
