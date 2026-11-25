@@ -30,8 +30,14 @@ export interface TripDay {
   /** Where you sleep that night (a place in the Hotels category). */
   stayId?: string;
   kind: DayKind;
-  /** e.g. flight number and time, or "Lisbon → Porto". */
+  /** e.g. flight number, or "Lisbon → Sintra". */
   note?: string;
+  /** "HH:MM" the day starts; defaults by day type. */
+  startTime?: string;
+  /** Times the user set for specific stops ("HH:MM" by place id). */
+  times?: Record<string, string>;
+  /** Flight departure "HH:MM" on flight days. */
+  flightTime?: string;
 }
 
 export interface SavedTrip {

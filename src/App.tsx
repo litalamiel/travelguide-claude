@@ -6,6 +6,7 @@ import { daysFromTrip, planTrip, toTripDays, type PlanOptions } from './planner'
 import { loadMaps, newMap, saveMaps } from './storage';
 import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } from './types';
 import { Itinerary, TripsPanel } from './Trips';
+import { arrangeMeals } from './timeline';
 import { ConfirmPlace, PlaceDetail } from './Place';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
 
@@ -229,13 +230,14 @@ export default function App() {
             count={places.length}
             onCancel={() => setPanel('none')}
             onPlan={(o) => {
-              const r = planTrip(places, o);
+              const r0 = planTrip(places, o);
+              const r = { ...r0, days: r0.days.map((d) => ({ ...d, places: arrangeMeals(d.places) })) };
               const t: SavedTrip = {
                 id: uid(), createdAt: new Date().toISOString(), maxDriveHours: o.maxDriveHours,
                 name: `Trip ${trips.length + 1} · ${o.nights} ${o.nights === 1 ? 'night' : 'nights'}`,
                 days: toTripDays(r.days, places, o.nights + 1),
               };
-              saveTrip(t); setTripId(t.id); setActiveDay(undefined); setPanel('none'); setSelectedId(undefined);
+              saveTrip(t); setTripId(t.id); setActiveDay(1); setPanel('none'); setSelectedId(undefined);
             }}
           />
         )}
@@ -254,7 +256,7 @@ export default function App() {
         {tripsOpen && (
           <TripsPanel
             trips={trips}
-            onOpen={(id) => { setTripId(id); setActiveDay(undefined); setTripsOpen(false); setSelectedId(undefined); }}
+            onOpen={(id) => { setTripId(id); setActiveDay(1); setTripsOpen(false); setSelectedId(undefined); }}
             onNew={() => { setTripsOpen(false); setPanel('plan'); }}
             onClose={() => setTripsOpen(false)}
           />
