@@ -318,9 +318,6 @@ export default function App() {
         )}
         {!plan && visible.length === 0 && <div className="empty">{kidsOnly && !cats.length ? 'No kids friendly places yet.' : cats.length ? `No ${cats.map((c) => categoryById(c).label.toLowerCase()).join(' or ')} places yet.` : 'No places yet.'} Search above to add one.</div>}
 
-        {selected && !plan && !pending && (
-          <PlaceDetail key={selected.id} place={selected} onUpdate={(patch) => update(selected.id, patch)} onRemove={() => remove(selected.id)} onClose={() => setSelectedId(undefined)} />
-        )}
 
         {panel === 'plan' && !plan && (
           <PlanForm
@@ -349,6 +346,10 @@ export default function App() {
             onDelete={() => deleteTrip(trip.id)}
             onSelectPlace={select}
           />
+        )}
+        {/* The place card opens from the map or the list, and also over an open itinerary (pin or stop clicked). */}
+        {selected && !pending && (
+          <PlaceDetail key={selected.id} place={selected} onUpdate={(patch) => update(selected.id, patch)} onRemove={() => remove(selected.id)} onClose={() => setSelectedId(undefined)} />
         )}
         {tripsOpen && (
           <TripsPanel

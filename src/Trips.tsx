@@ -263,7 +263,7 @@ function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, ed
                           onBlur={(e) => { setTime(i, p.id, e.target.value); setEditTime(undefined); }}
                           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
                       ) : (
-                        <button className={'tl__time' + (r.fixed ? ' tl__time--fixed' : '')} onClick={() => setEditTime(p.id)} aria-label={`${r.time}, change time for ${p.name}`}>{r.time}</button>
+                        <button className={'tl__time' + (r.fixed ? ' tl__time--fixed' : '')} onClick={() => (editing ? setEditTime(p.id) : onSelectPlace(p.id))} aria-label={editing ? `${r.time}, change time for ${p.name}` : `${r.time}, show ${p.name} on the map`}>{r.time}</button>
                       )}
                       <span className="tl__badge" style={{ background: c.tint, color: c.color }}><Svg d={c.icon} /></span>
                       <div className={'tl__card' + (food ? ' tl__card--food' : '')}>
