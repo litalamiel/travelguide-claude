@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CATEGORIES, categoryById } from './categories';
 import { Carousel } from './Place';
-import { keyFrames } from './reel';
+import { englishFor, keyFrames } from './reel';
 import { analyzeCaption, countryOf, findCaptionPlace, type SearchResult } from './geocode';
 import type { CategoryId, Place } from './types';
 
@@ -68,6 +68,8 @@ export interface BulkPlace {
   choice: number;
   sure: boolean;
   keep: boolean;
+  /** Found from a loose guess (a capitalised word or hashtag), not a pin or "at X". */
+  weak?: boolean;
   /** Category the user chose instead of the one we guessed. */
   category?: CategoryId;
 }
@@ -103,7 +105,8 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
         if (stop) return;
         if (!r.ok || !data.caption) { patch(code, { status: 'failed' }); return; }
         const found: BulkPlace[] = [];
-        for (const p0 of analyzeCaption(data.caption).slice(0, 4)) {
+        const english = await englishFor(data.caption);
+        for (const p0 of analyzeCaption(data.caption, english).slice(0, 4)) {
           // A collection named after a country ("austria") keeps matches in that country.
           const p = !countryOf(p0.area) && batchCountry ? { ...p0, area: [p0.area, batch.name].filter(Boolean).join(', ') } : p0;
           try {
@@ -118,10 +121,12 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
             }
             if (f.confident && results[0]?.cc) countries.set(results[0].cc, (countries.get(results[0].cc) ?? 0) + 1);
             if (results.length) {
-              found.push({ key: `${code}:${p.query}`, code, phrase: p.query, matches: results.slice(0, f.confident ? 1 : 3), choice: 0, sure: f.confident, keep: f.confident });
+              found.push({ key: `${code}:${p.query}`, code, phrase: p.query, matches: results.slice(0, f.confident ? 1 : 3), choice: 0, sure: f.confident, keep: f.confident, weak: p.from === 'name' || p.from === 'hashtag' });
             }
           } catch { /* skip this phrase */ }
         }
+        // Loose guesses (a capitalised word, a hashtag) are dropped when the reel already has a clear place.
+        if (found.some((f) => f.sure)) found.splice(0, found.length, ...found.filter((f) => f.sure || !f.weak));
         patch(code, { status: found.length ? 'done' : 'none', data });
         // The same place from two reels is kept once.
         const near = (a: SearchResult, b: SearchResult) => Math.abs(a.lat - b.lat) < 0.003 && Math.abs(a.lng - b.lng) < 0.004;

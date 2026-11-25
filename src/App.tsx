@@ -8,7 +8,7 @@ import type { CategoryId, Listing, PendingPlace, Place, SavedTrip, TripMap } fro
 import { Itinerary, TripsPanel } from './Trips';
 import { arrangeMeals } from './timeline';
 import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, PlaceDetail } from './Place';
-import { keyFrames } from './reel';
+import { englishFor, keyFrames } from './reel';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
 import { BulkReview, CollectionImport, batchFromHash, collectionFrom, toPlaces, useBulkReader, type ReelBatch } from './Bulk';
 
@@ -419,21 +419,26 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
     setBusy(true);
     const out = [];
     let sure = 0;
-    for (const p of analyzeCaption(text)) {
+    let weakUnsure = 0;
+    const english = await englishFor(text);
+    for (const p of analyzeCaption(text, english)) {
       const phrase = p.from === 'pin' ? `📍 ${p.query}${p.area ? `, ${p.area}` : ''}` : p.query;
       // One confident match (right kind of place) is shown alone; otherwise the top 3.
       try {
         const f = await findCaptionPlace(p, near);
         if (f.confident) sure++;
+        else if (p.from === 'name' || p.from === 'hashtag') weakUnsure++;
         out.push({ phrase, matches: f.results.slice(0, f.confident ? 1 : 3) });
       } catch { out.push({ phrase, matches: [] }); }
     }
     // The reel is about one place and we're sure which: put it on the map right away (with its key frames).
-    if (auto && out.length === 1 && sure === 1 && out[0].matches.length === 1) {
+    // Loose guesses that found nothing clear ("Barfußweg", a kind of path) don't stop that.
+    const sureOne = out.find((o) => o.matches.length === 1);
+    if (auto && sure === 1 && out.length - weakUnsure === 1 && sureOne) {
       // Show the pin right away; the key frames join the card as soon as they're ready.
       const info = infoRef.current;
       setBusy(false);
-      onAdd(out[0].matches[0], url.trim(), info.reel, info.images.slice(0, 10), info.note, framesRef.current);
+      onAdd(sureOne.matches[0], url.trim(), info.reel, info.images.slice(0, 10), info.note, framesRef.current);
       return;
     }
     setFound(out);

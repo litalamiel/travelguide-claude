@@ -101,7 +101,7 @@ const HINTS: [CategoryId, RegExp][] = [
   ['beaches', /\b(beach|praia|playa|plage|spiaggia|cove|bay)\b|🏖️?|🏝️?/iu],
   ['views', /\b(view ?point|viewpoint|miradouro|mirador|lookout|panoram\w*|sunset spot|best view)\b|🌅|🌄/iu],
   ['museums', /\b(museum|museu|museo|gallery|exhibition)\b|🖼️?/iu],
-  ['nature', /\b(hike|hiking|trail|waterfall|national park|lake|canyon|forest|mountain|garden)\b|🥾|⛰️?|🌲|🏞️?/iu],
+  ['nature', /\b(hikes?|hiking|trails?|waterfalls?|national park|lakes?|canyons?|forests?|mountains?|gardens?)\b|🥾|⛰️?|🌲|🏞️?/iu],
   ['shopping', /\b(market|shop(ping)?|boutique|store|mercado|souvenirs?)\b|🛍️?/iu],
   ['experiences', /\b(tour|class|workshop|boat trip|cruise|surf(ing)? lesson|tickets?|playgrounds?|adventure parks?|theme parks?|water ?parks?|amusement parks?|zoo|aquarium|cable ?cars?|gondola|zip ?lin(e|es|ing)|climbing|ropes? course|mountain ?carts?|toboggan|summer sled\w*|rafting|canyoning|paragliding|kayak\w*|activities|activity|attractions?|for (the )?kids|kids club)\b|\berlebnis\w*|🎟️?|🚤|🎢|🎡|🛝|🚠/iu],
   ['sights', /\b(castle|palace|pal[aá]cio|church|cathedral|monastery|temple|tower|monument|old town)\b|🏰|🏛️?|⛪/iu],
@@ -143,7 +143,22 @@ const clean = (s: string) => s.replace(/[\p{Extended_Pictographic}\p{Regional_In
  * emoji around it ("hotel", 🍝, "sunset") say what kind of place it is.
  * Weaker signals ("at X", hashtags, capitalised names) are used only when there is no pin.
  */
-export function analyzeCaption(caption: string): CaptionPlace[] {
+// Captions written in another script (Hebrew, Arabic, Greek…): place names usually stay in Latin letters ("…מסלול הליכה Hexenwasser").
+const NON_LATIN = /[\p{Script=Hebrew}\p{Script=Arabic}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}]/gu;
+const COMMON_LATIN = /^(instagram|reels?|google|maps|link|bio|guide|dm|ok|wow|wifi|vlog|tiktok|youtube|airbnb|booking|uber)$/i;
+function latinNames(caption: string): string[] {
+  const body = caption.replace(/#[\p{L}\d_]+|@[\w.]+|https?:\S+/gu, ' ');
+  const letters = (body.match(/\p{L}/gu) ?? []).length;
+  if (!letters || (body.match(NON_LATIN) ?? []).length < letters / 2) return [];
+  return (body.match(/\b\p{Lu}[\p{Script=Latin}'’-]{3,}(?:[^\S\n]+(?:\p{Lu}[\p{Script=Latin}'’-]+|am|an|im|de|da|do|di|del|la|le|of|von|zu)\b)*/gu) ?? [])
+    .map((n) => n.trim()).filter((n) => !COMMON_LATIN.test(n) && !STOP_WORDS.test(n));
+}
+
+/**
+ * `english`, when given, is the caption translated to English: it's used for the kind of place and the country,
+ * while names are read from the original (translation can mangle them, "Söll" → "Sol").
+ */
+export function analyzeCaption(caption: string, english?: string): CaptionPlace[] {
   const out: CaptionPlace[] = [];
   const seen = new Set<string>();
   const add = (p: CaptionPlace) => {
@@ -152,7 +167,7 @@ export function analyzeCaption(caption: string): CaptionPlace[] {
     seen.add(k); out.push(p);
   };
   const lines = caption.split(/\n+/);
-  const wholeHint = hintFromMost(caption);
+  const wholeHint = hintFromMost(english ? `${caption}\n${english}` : caption);
 
   lines.forEach((line, li) => {
     const m = line.split(PIN);
@@ -190,6 +205,11 @@ export function analyzeCaption(caption: string): CaptionPlace[] {
 
   const tags = (caption.match(/#[\p{L}\d_]+/gu) ?? []).map((t) => t.slice(1));
   // Weak signals (capitalised names, hashtags) only when the caption has no pin and no "at X".
+  // Latin-letter names in a caption written in another script.
+  if (!out.length) {
+    const country = english && Object.keys(COUNTRIES).find((c) => c.length > 3 && new RegExp(`\\b${c}\\b`, 'i').test(norm(english)));
+    latinNames(caption).forEach((n) => add({ query: n, area: country ? country[0].toUpperCase() + country.slice(1) : undefined, hint: wholeHint, from: 'name' }));
+  }
   if (!out.length) {
     const caps = caption.match(/\b[A-Z][\p{L}'’-]+(?:[^\S\n]+(?:dos|das|del|de|da|do|di|la|le|of|[A-Z][\p{L}'’-]+)\b)+/gu) ?? [];
     caps.forEach((c) => add({ query: c.trim(), from: 'name' }));
@@ -306,7 +326,8 @@ export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; ln
   if (!all.length && area) all = (await searchPlaces(p.query, near, [], 10)).filter(inCountry);
   const places = all.filter((r) => !NOT_A_PLACE.test(r.osm ?? ''));
   const named = rank(places);
-  if (named.length && (!tags || named[0].t < 99)) return { results: named_(named, clear(named)), confident: clear(named) };
+  // A name only one place on the map has is the answer even if it's mapped as another kind ("Hexenwasser", a hiking trail mapped as an attraction).
+  if (named.length && (!tags || named[0].t < 99 || (named[0].s === 1 && clear(named)))) return { results: named_(named, clear(named)), confident: clear(named) };
 
   // 2b. Resorts are often mapped as a site (landuse or building) whose name says what it is.
   const sites = rank(all.filter((r) => /^(landuse|building)/.test(r.osm ?? '') && p.hint && hintFrom(r.name) === p.hint));

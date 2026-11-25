@@ -28,6 +28,12 @@ export function looksNonEnglish(text: string): boolean {
 const LANGS: Record<string, string> = { pt: 'Portuguese', es: 'Spanish', it: 'Italian', fr: 'French', de: 'German', he: 'Hebrew', iw: 'Hebrew', nl: 'Dutch', ja: 'Japanese', ko: 'Korean', zh: 'Chinese', 'zh-CN': 'Chinese', ru: 'Russian', ar: 'Arabic', el: 'Greek', tr: 'Turkish', th: 'Thai', pl: 'Polish' };
 export const langName = (code?: string) => (code ? LANGS[code] ?? LANGS[code.split('-')[0]] ?? code.toUpperCase() : 'another language');
 
+/** The caption in English when it's written in another language (used to read the kind of place and the country). */
+export async function englishFor(caption: string): Promise<string | undefined> {
+  if (!looksNonEnglish(caption)) return undefined;
+  try { return (await translateToEnglish(caption)).text; } catch { return undefined; }
+}
+
 export async function translateToEnglish(text: string): Promise<{ text: string; lang?: string }> {
   const r = await fetch(`${API_BASE}/api/translate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
   const d = await r.json().catch(() => ({}));
