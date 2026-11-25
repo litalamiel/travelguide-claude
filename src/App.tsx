@@ -311,7 +311,7 @@ export default function App() {
         {creator && <CreatorStats map={current} />}
         <nav className="cats" aria-label="Categories">
           <button className={'cat' + (!cats.length ? ' cat--on' : '')} onClick={() => setCats([])} aria-pressed={!cats.length}>
-            <span className="cat__icon" style={{ background: !cats.length ? '#0f766e' : '#ccfbf1', color: !cats.length ? '#fff' : '#0f766e' }}>
+            <span className="cat__icon" style={{ background: !cats.length ? '#2B4436' : '#E2E9E3', color: !cats.length ? '#fff' : '#2B4436' }}>
               <Icon d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
             </span>
             All <span className="cat__n">{counts.all}</span>

@@ -28,20 +28,20 @@ function Svg({ d, size = 18 }: { d: string; size?: number }) {
 }
 
 const KINDS: { id: DayKind; label: string; hint: string; icon: string; color: string; tint: string }[] = [
-  { id: 'regular', label: 'Exploring', hint: 'Same hotel, a day of visits', icon: P.camera, color: '#0f766e', tint: '#ccfbf1' },
-  { id: 'transition', label: 'Moving hotels', hint: 'Check out, travel, check in somewhere new', icon: P.car, color: '#c2410c', tint: '#ffedd5' },
-  { id: 'flight', label: 'Flight day', hint: 'A flight takes part of the day', icon: P.plane, color: '#7c3aed', tint: '#ede9fe' },
+  { id: 'regular', label: 'Exploring', hint: 'Same hotel, a day of visits', icon: P.camera, color: '#2B4436', tint: '#E2E9E3' },
+  { id: 'transition', label: 'Moving hotels', hint: 'Check out, travel, check in somewhere new', icon: P.car, color: '#B0703C', tint: '#f4ebe4' },
+  { id: 'flight', label: 'Flight day', hint: 'A flight takes part of the day', icon: P.plane, color: '#6B4C66', tint: '#eae6ea' },
 ];
 const kindOf = (k: DayKind) => KINDS.find((x) => x.id === k)!;
 
 type Part = 'Morning' | 'Lunch' | 'Afternoon' | 'Evening' | 'Dinner' | 'Night';
 const PARTS: Record<Part, { icon: string; color: string; bg: string }> = {
-  Morning: { icon: P.sun, color: '#a16207', bg: '#fffbeb' },
-  Lunch: { icon: P.fork, color: '#b91c1c', bg: '#fff1f2' },
-  Afternoon: { icon: P.sun, color: '#a16207', bg: '#fffbeb' },
-  Evening: { icon: P.sunset, color: '#9a3412', bg: '#fff7ed' },
-  Dinner: { icon: P.fork, color: '#b91c1c', bg: '#fff1f2' },
-  Night: { icon: P.moon, color: '#0f172a', bg: '#f1f5f9' },
+  Morning: { icon: P.sun, color: '#B0894C', bg: '#F2EADA' },
+  Lunch: { icon: P.fork, color: '#9A4B3B', bg: '#F2E2DD' },
+  Afternoon: { icon: P.sun, color: '#B0894C', bg: '#F2EADA' },
+  Evening: { icon: P.sunset, color: '#B0703C', bg: '#f9f4ef' },
+  Dinner: { icon: P.fork, color: '#9A4B3B', bg: '#F2E2DD' },
+  Night: { icon: P.moon, color: '#1F2A24', bg: '#ECEBE3' },
 };
 const toM = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 function partOf(r: Row): Part {
@@ -272,7 +272,7 @@ function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, ed
                           {p.mustSee && <span className="tag tag--must">★ Must do</span>}
                           {p.ifTime && <span className="tag tag--time">If you have time</span>}
                           {p.kids && <span className="tag tag--kids">Kids</span>}
-                          <small style={food ? { color: '#b91c1c', fontWeight: 700 } : undefined}>{r.meal ? `${r.meal} · ` : ''}{c.label} · {r.minutes < 60 ? `${r.minutes} min` : `${Math.round(r.minutes / 30) / 2} h`}</small>
+                          <small style={food ? { color: '#9A4B3B', fontWeight: 700 } : undefined}>{r.meal ? `${r.meal} · ` : ''}{c.label} · {r.minutes < 60 ? `${r.minutes} min` : `${Math.round(r.minutes / 30) / 2} h`}</small>
                         </button>
                         {editing && <span className="stop__tools">
                           <button className="mini" aria-label={`Move ${p.name} earlier`} disabled={r.index === 0} onClick={() => move(i, r.index, r.index - 1)}><Svg d={P.up} size={16} /></button>
@@ -294,7 +294,7 @@ function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, ed
                   return (
                     <li key={ri} className="tl__row">
                       <span className="tl__timetext">{r.time}</span>
-                      <span className="tl__badge" style={{ background: '#fee2e2', color: '#b91c1c' }}><Svg d={P.fork} /></span>
+                      <span className="tl__badge" style={{ background: '#F2E2DD', color: '#9A4B3B' }}><Svg d={P.fork} /></span>
                       <label className="slot">
                         <span className="sr-only">Pick a {r.meal.toLowerCase()} spot</span>
                         <select value="" onChange={(e) => e.target.value && addStop(i, e.target.value)}>
@@ -308,8 +308,8 @@ function DayView({ d, raw, i, last, prevStay, title, days, unplanned, hotels, ed
                 }
                 if (r.kind === 'milestone') {
                   const icon = r.icon === 'flight' ? P.plane : r.icon === 'drive' ? P.car : r.icon === 'checkout' ? P.out : P.in;
-                  const color = r.icon === 'flight' ? '#7c3aed' : r.icon === 'drive' ? '#c2410c' : '#0f172a';
-                  const tint = r.icon === 'flight' ? '#ede9fe' : r.icon === 'drive' ? '#ffedd5' : '#e2e8f0';
+                  const color = r.icon === 'flight' ? '#6B4C66' : r.icon === 'drive' ? '#B0703C' : '#1F2A24';
+                  const tint = r.icon === 'flight' ? '#eae6ea' : r.icon === 'drive' ? '#f4ebe4' : '#DFDDD3';
                   return (
                     <li key={ri} className="tl__row">
                       <span className="tl__timetext">{r.time}</span>

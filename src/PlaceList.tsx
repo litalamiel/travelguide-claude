@@ -29,10 +29,10 @@ function PlaceCard({ p, on, onSelect }: { p: Place; on: boolean; onSelect: () =>
           <span className="pcard__name">{p.name}</span>
           <span className="pcard__tags">
             <span className="ptag"><span className="ptag__ic" style={{ background: c.color }}><Svg d={c.icon} /></span>{c.label}</span>
-            {p.mustSee && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#15803d' }} />Must do</span>}
-            {p.ifTime && !p.mustSee && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#0284c7' }} />If you have time</span>}
+            {p.mustSee && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#2B4436' }} />Must do</span>}
+            {p.ifTime && !p.mustSee && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#3F6170' }} />If you have time</span>}
             {p.kids && <span className="ptag ptag--kids">{KIDS.text} FRIENDLY</span>}
-            {p.visited && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#64748b' }} />Visited</span>}
+            {p.visited && <span className="ptag ptag--dot"><span className="ptag__dot" style={{ background: '#69726B' }} />Visited</span>}
           </span>
           {text && <span className="pcard__text">{text}</span>}
           <span className="pcard__btns">

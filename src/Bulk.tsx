@@ -43,9 +43,9 @@ const A=${JSON.stringify(appOrigin)};
 if(!/(^|\\.)instagram\\.com$/.test(location.hostname)){alert('Open one of your saved collections on instagram.com, then click Send to Travel Maps.');return}
 if(window.__tmBusy)return;window.__tmBusy=1;
 const b=document.createElement('div');
-b.style.cssText='position:fixed;right:20px;top:20px;z-index:2147483647;width:300px;background:#fff;color:#0f172a;border-radius:16px;box-shadow:0 14px 40px rgba(0,0,0,.3);padding:16px;border-top:5px solid #0f766e;font:14px/1.45 system-ui,sans-serif';
+b.style.cssText='position:fixed;right:20px;top:20px;z-index:2147483647;width:300px;background:#fff;color:#1F2A24;border-radius:16px;box-shadow:0 14px 40px rgba(0,0,0,.3);padding:16px;border-top:5px solid #2B4436;font:14px/1.45 system-ui,sans-serif';
 document.body.appendChild(b);
-const s=h=>{b.innerHTML='<div style="display:flex;justify-content:space-between"><b style="font-size:15px">📍 Travel Maps</b><span id="tmx" style="cursor:pointer;color:#475569">✕</span></div><div style="margin-top:8px">'+h+'</div>';b.querySelector('#tmx').onclick=()=>{b.remove();window.__tmBusy=0}};
+const s=h=>{b.innerHTML='<div style="display:flex;justify-content:space-between"><b style="font-size:15px">📍 Travel Maps</b><span id="tmx" style="cursor:pointer;color:#69726B">✕</span></div><div style="margin-top:8px">'+h+'</div>';b.querySelector('#tmx').onclick=()=>{b.remove();window.__tmBusy=0}};
 const c=new Set();
 const g=()=>document.querySelectorAll('a[href]').forEach(a=>{const m=a.getAttribute('href').match(/\\/(?:p|reels?|tv)\\/([\\w-]{5,})/);if(m)c.add(m[1])});
 let last=-1,still=0;
@@ -54,7 +54,7 @@ window.scrollTo(0,0);window.__tmBusy=0;
 let n=(location.pathname.match(/\\/saved\\/([^/]+)/)||[])[1]||'Saved reels';try{n=decodeURIComponent(n).replace(/[-_]+/g,' ')}catch(e){}
 if(!c.size){s('No reels found on this page. Open one of your saved collections on instagram.com and try again.');return}
 const u=A+'/#reels='+encodeURIComponent(JSON.stringify({c:n,l:[...c]}));
-s('Collected <b>'+c.size+' reels</b> from “'+n.replace(/</g,'')+'”.<a href="'+u+'" target="_blank" style="display:block;margin-top:12px;background:#0f766e;color:#fff;text-align:center;font-weight:700;border-radius:12px;padding:10px;text-decoration:none">Back to Travel Maps</a><div style="margin-top:6px;color:#475569;font-size:12px">Nothing on Instagram is changed.</div>');
+s('Collected <b>'+c.size+' reels</b> from “'+n.replace(/</g,'')+'”.<a href="'+u+'" target="_blank" style="display:block;margin-top:12px;background:#2B4436;color:#fff;text-align:center;font-weight:700;border-radius:12px;padding:10px;text-decoration:none">Back to Travel Maps</a><div style="margin-top:6px;color:#69726B;font-size:12px">Nothing on Instagram is changed.</div>');
 })()`;
   return 'javascript:' + encodeURIComponent(code.replace(/\n/g, ''));
 }

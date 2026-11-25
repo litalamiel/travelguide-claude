@@ -5,8 +5,25 @@ import { KIDS, STAR, categoryById } from './categories';
 
 // Free OpenStreetMap vector tiles from OpenFreeMap — no API key, live and zoomable.
 // To switch to Google Maps later, replace this component (see README).
-export const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
-export const DAY_COLORS = ['#1d4ed8', '#c2410c', '#15803d', '#7c3aed', '#0e7490', '#be185d', '#a16207', '#475569'];
+export const MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron';
+
+/** Forest & Brass map tint: cream land, sage water and parks, quiet roads. */
+const MAP_TINT = { land: '#F1F0E9', water: '#CCD8D3', green: '#E2E7DA', building: '#E7E5DC', road: '#FFFFFF', label: '#69726B' };
+export function tintMap(m: maplibregl.Map) {
+  for (const l of m.getStyle()?.layers ?? []) {
+    const id = l.id;
+    try {
+      if (l.type === 'background') m.setPaintProperty(id, 'background-color', MAP_TINT.land);
+      else if (l.type === 'fill' && /water|ocean|sea/.test(id)) m.setPaintProperty(id, 'fill-color', MAP_TINT.water);
+      else if (l.type === 'line' && /waterway|river/.test(id)) m.setPaintProperty(id, 'line-color', MAP_TINT.water);
+      else if (l.type === 'fill' && /park|wood|forest|grass|landcover|garden/.test(id)) m.setPaintProperty(id, 'fill-color', MAP_TINT.green);
+      else if (l.type === 'fill' && /building/.test(id)) m.setPaintProperty(id, 'fill-color', MAP_TINT.building);
+      else if (l.type === 'fill' && /landuse|residential/.test(id)) m.setPaintProperty(id, 'fill-color', MAP_TINT.land);
+      else if (l.type === 'symbol' && (l.layout as Record<string, unknown> | undefined)?.['text-field']) m.setPaintProperty(id, 'text-color', MAP_TINT.label);
+    } catch { /* layer without that property */ }
+  }
+}
+export const DAY_COLORS = ['#3F6170', '#B0703C', '#2B4436', '#6B4C66', '#2B4436', '#965A6C', '#B0894C', '#69726B'];
 
 interface Props {
   places: Place[];
@@ -60,6 +77,7 @@ export default function MapView({ places, selectedId, onSelect, onCenterChange, 
     m.on('moveend', () => { const c = m.getCenter(); onCenterChange({ lat: c.lat, lng: c.lng }); });
     m.on('load', () => {
       loaded.current = true;
+      tintMap(m);
       m.addSource('routes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       m.addLayer({
         id: 'routes', type: 'line', source: 'routes',
