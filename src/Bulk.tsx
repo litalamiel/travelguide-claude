@@ -126,7 +126,9 @@ export function useBulkReader(batch: ReelBatch | undefined, near: { lat: number;
           } catch { /* skip this phrase */ }
         }
         // Loose guesses (a capitalised word, a hashtag) are dropped when the reel already has a clear place.
-        if (found.some((f) => f.sure)) found.splice(0, found.length, ...found.filter((f) => f.sure || !f.weak));
+        // With only loose guesses, the first clear one is the reel's subject.
+        if (found.length && found.every((f) => f.weak)) { const first = found.find((f) => f.sure); if (first) found.splice(0, found.length, first); }
+        else if (found.some((f) => f.sure)) found.splice(0, found.length, ...found.filter((f) => f.sure || !f.weak));
         patch(code, { status: found.length ? 'done' : 'none', data });
         // The same place from two reels is kept once.
         const near = (a: SearchResult, b: SearchResult) => Math.abs(a.lat - b.lat) < 0.003 && Math.abs(a.lng - b.lng) < 0.004;

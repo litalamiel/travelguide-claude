@@ -310,10 +310,11 @@ export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; ln
     return rs;
   };
   const rank = (rs: SearchResult[]) => rs.filter(inCountry)
-    .map((r) => ({ r, s: nameScore(r.name, p.query), t: tags ? tagRank(tags, r.osm) : 0 }))
+    // e: the map name is exactly the caption's name ("Hexenwasser", not "Hexenwasserbahn", its gondola).
+    .map((r) => ({ r, s: nameScore(r.name, p.query), t: tags ? tagRank(tags, r.osm) : 0, e: norm(r.name).trim() === norm(p.query).trim() }))
     .filter((x) => x.s >= 0.5)
-    .sort((a, b) => b.s - a.s || a.t - b.t);
-  const clear = (xs: { s: number; t: number }[]) => xs.length > 0 && (xs.length === 1 || xs[0].s - xs[1].s >= 0.2 || (xs[0].s === xs[1].s && xs[0].t < xs[1].t) || (xs[0].s === 1 && xs[1].s < 1));
+    .sort((a, b) => b.s - a.s || Number(b.e) - Number(a.e) || a.t - b.t);
+  const clear = (xs: { s: number; t: number; e?: boolean }[]) => xs.length > 0 && (xs.length === 1 || xs[0].s - xs[1].s >= 0.2 || (xs[0].s === xs[1].s && xs[0].t < xs[1].t) || (xs[0].s === 1 && xs[1].s < 1) || (xs[0].s === xs[1].s && !!xs[0].e && !xs[1].e && (xs.length < 3 || !xs[2].e)));
 
   // 1. The right kind of place with a matching name.
   if (tags) {

@@ -418,23 +418,25 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
   const findPlaces = async (text: string, auto = false) => {
     setBusy(true);
     const out = [];
-    let sure = 0;
-    let weakUnsure = 0;
+    const how: { sure: boolean; weak: boolean }[] = [];
     const english = await englishFor(text);
     for (const p of analyzeCaption(text, english)) {
       const phrase = p.from === 'pin' ? `📍 ${p.query}${p.area ? `, ${p.area}` : ''}` : p.query;
       // One confident match (right kind of place) is shown alone; otherwise the top 3.
       try {
         const f = await findCaptionPlace(p, near);
-        if (f.confident) sure++;
-        else if (p.from === 'name' || p.from === 'hashtag') weakUnsure++;
+        how.push({ sure: f.confident, weak: p.from === 'name' || p.from === 'hashtag' });
         out.push({ phrase, matches: f.results.slice(0, f.confident ? 1 : 3) });
-      } catch { out.push({ phrase, matches: [] }); }
+      } catch { how.push({ sure: false, weak: true }); out.push({ phrase, matches: [] }); }
     }
     // The reel is about one place and we're sure which: put it on the map right away (with its key frames).
-    // Loose guesses that found nothing clear ("Barfußweg", a kind of path) don't stop that.
-    const sureOne = out.find((o) => o.matches.length === 1);
-    if (auto && sure === 1 && out.length - weakUnsure === 1 && sureOne) {
+    // With a pin or "at X": that one place, if it's the only one. With only loose guesses (names in a caption
+    // written in another script): the first one that matched clearly; the caption names its subject first.
+    const strong = out.filter((_, i) => !how[i].weak);
+    const sureOne = strong.length
+      ? (strong.length === 1 && how[out.indexOf(strong[0])].sure ? strong[0] : undefined)
+      : out.find((_, i) => how[i].sure);
+    if (auto && sureOne) {
       // Show the pin right away; the key frames join the card as soon as they're ready.
       const info = infoRef.current;
       setBusy(false);
