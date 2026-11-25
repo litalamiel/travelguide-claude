@@ -29,3 +29,4 @@ Open http://localhost:5173.
 - Reel caption reading uses Instagram's public embed page, which Instagram can change or block at any time. For production, use Meta's official oEmbed API (a Meta app with oEmbed Read approval).
 - Reel import reads the caption only. Next: a small server that transcribes the voiceover and reads video frames with AI.
 - No accounts yet; data lives in one browser.
+- Reel place detection learns from every confirm and fix (shared memory + Claude with past lessons as examples). Setup and how to teach it: [LEARNING.md](LEARNING.md).

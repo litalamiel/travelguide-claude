@@ -9,8 +9,9 @@ import { Itinerary, TripsPanel } from './Trips';
 import { arrangeMeals } from './timeline';
 import { CaptionBlock, Carousel, ConfirmPlace, CreatorHeader, PlaceDetail } from './Place';
 import { englishFor, keyFrames } from './reel';
+import { shortcodeOf, smartGuess, teach, type LessonDraft } from './learn';
 import { MapsPanel, SellPanel, BuyerPreview } from './Maps';
-import { BulkReview, CollectionImport, batchFromHash, collectionFrom, toPlaces, useBulkReader, type BulkTarget, type ReelBatch } from './Bulk';
+import { BulkReview, CollectionImport, batchFromHash, collectionFrom, teachBulk, toPlaces, useBulkReader, type BulkTarget, type ReelBatch } from './Bulk';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -108,7 +109,32 @@ export default function App() {
   // Option A: a chosen result is previewed on the map first; it's saved only on "Add to map".
   const [pending, setPending] = useState<PendingPlace>();
   const [storageWarning, setStorageWarning] = useState(false);
+  // The app's first guess for a reel pin, sent back as a lesson when the user confirms, fixes or turns it down.
+  const lessonRef = useRef<LessonDraft>();
+  // After "Not this one" on a reel pin, the next place added by search within 3 minutes is taken as the right answer.
+  const correction = useRef<{ draft: LessonDraft; timer: number }>();
+  const settleCorrection = (final?: PendingPlace) => {
+    const c = correction.current;
+    if (!c) return;
+    clearTimeout(c.timer);
+    correction.current = undefined;
+    teach(c.draft, final);
+  };
+  useEffect(() => {
+    const flush = () => settleCorrection();
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const rejectReelPin = () => {
+    const draft = lessonRef.current;
+    lessonRef.current = undefined;
+    if (!draft) return;
+    settleCorrection();
+    correction.current = { draft, timer: window.setTimeout(() => settleCorrection(), 180_000) };
+  };
   const preview = (r: SearchResult, extra: Partial<PendingPlace> = {}) => {
+    if (extra.source !== 'reel') lessonRef.current = undefined;
     setPending({ name: r.name, lat: r.lat, lng: r.lng, address: r.address, category: r.category, source: 'search', photos: [], ...extra });
     setTripId(undefined); setSelectedId(undefined);
     setQuery(''); setResults([]);
@@ -117,6 +143,9 @@ export default function App() {
   const confirmPending = () => {
     if (!pending) return;
     const p: Place = { ...pending, id: uid() };
+    if (lessonRef.current && pending.source === 'reel') teach(lessonRef.current, pending);
+    else if (pending.source === 'search') settleCorrection(pending);
+    lessonRef.current = undefined;
     setPlaces((ps) => [...ps, p]);
     setPending(undefined);
     setCats((cs) => (cs.length && !cs.includes(p.category) ? [...cs, p.category] : cs));
@@ -172,6 +201,7 @@ export default function App() {
   }, [batch]);
   const addBulk = () => {
     const add = toPlaces(bulkReader.places, bulkReader.reels, uid);
+    teachBulk(bulkReader.places, bulkReader.reels);
     const t = bulkTarget;
     let id: string;
     if ('newName' in t) {
@@ -260,7 +290,7 @@ export default function App() {
             onAdd={addBulk} onClose={() => { setBatch(undefined); setBulkFocus(undefined); }} />
         )}
         {storageWarning && <div className="toast" role="status">This browser is out of storage space, so recent changes may not be saved. Remove some photos to free space.</div>}
-        {pending && <ConfirmPlace pending={pending} onChange={setPending} onCancel={() => setPending(undefined)} onAdd={confirmPending} />}
+        {pending && <ConfirmPlace pending={pending} onChange={setPending} onCancel={() => { rejectReelPin(); setPending(undefined); }} onAdd={confirmPending} />}
 
         {!plan && !pending && !batch && (
           <div className="fabs">
@@ -359,8 +389,9 @@ export default function App() {
           <ImportReel
             near={center}
             onClose={() => setPanel('none')}
-            onAdd={(r, url, reel, photos, note, later) => {
+            onAdd={(r, url, reel, photos, note, later, lesson) => {
               setPanel('none');
+              lessonRef.current = lesson;
               preview(r, { source: 'reel', reelUrl: url, reel, photos, note: note || undefined });
               // Key frames keep arriving after the pin is shown: add them to the card if it's still open.
               later?.then((f) => f.length && setPending((p) => (p && p.reelUrl === url ? { ...p, photos: [...(p.photos ?? []), ...f.filter((x) => !p.photos?.includes(x))].slice(0, 10) } : p))).catch(() => {});
@@ -410,7 +441,7 @@ const isReelLink = (u: string) => /instagram\.com\/(?:[\w.]+\/)?(?:reels?|p|tv)\
 
 type ReelInfo = NonNullable<Place['reel']>;
 
-function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string, reel: ReelInfo, photos: string[], note: string, later?: Promise<string[]>) => void }) {
+function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string, reel: ReelInfo, photos: string[], note: string, later?: Promise<string[]>, lesson?: LessonDraft) => void }) {
   const [url, setUrl] = useState('');
   const [reel, setReel] = useState<ReelInfo>({});
   const [images, setImages] = useState<string[]>([]);
@@ -422,6 +453,8 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<{ phrase: string; matches: SearchResult[] }[]>();
   const [added, setAdded] = useState<Set<string>>(new Set());
+  // What a pick from the list is compared with: the first suggestion and how it was found.
+  const lessonBase = useRef<LessonDraft>();
   const caption = reel.caption ?? '';
   const collection = collectionFrom(url);
   // While a collection link is showing, this tab takes the reels the bookmark sends back.
@@ -437,8 +470,14 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
 
   const findPlaces = async (text: string, auto = false) => {
     setBusy(true);
-    const out = [];
+    const out: { phrase: string; matches: SearchResult[] }[] = [];
     const how: { sure: boolean; weak: boolean }[] = [];
+    // The learned guess (shared memory, then Claude) runs alongside the caption rules.
+    const code = shortcodeOf(url.trim());
+    const start = infoRef.current;
+    const smartP = code
+      ? smartGuess({ code, caption: text, author: start.reel.author, images: start.images }, near).catch(() => undefined)
+      : Promise.resolve(undefined);
     const english = await englishFor(text);
     for (const p of analyzeCaption(text, english)) {
       const phrase = p.from === 'pin' ? `📍 ${p.query}${p.area ? `, ${p.area}` : ''}` : p.query;
@@ -456,13 +495,31 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
     const sureOne = strong.length
       ? (strong.length === 1 && how[out.indexOf(strong[0])].sure ? strong[0] : undefined)
       : out.find((_, i) => how[i].sure);
+    const smart = await smartP;
+    const draft = (method: LessonDraft['method'], guess?: SearchResult): LessonDraft | undefined => code ? {
+      shortcode: code, author: infoRef.current.reel.author, caption: text, captionEn: english,
+      cover: infoRef.current.images[0], method, guess, ai: smart?.ai,
+    } : undefined;
+    // A reel people already confirmed, or one Claude is sure about, goes on the map right away.
+    if (auto && smart?.sure && smart.results[0]) {
+      const info = infoRef.current;
+      setBusy(false);
+      onAdd(smart.results[0], url.trim(), info.reel, info.images.slice(0, 10), info.note, framesRef.current, draft(smart.method, smart.results[0]));
+      return;
+    }
     if (auto && sureOne) {
       // Show the pin right away; the key frames join the card as soon as they're ready.
       const info = infoRef.current;
       setBusy(false);
-      onAdd(sureOne.matches[0], url.trim(), info.reel, info.images.slice(0, 10), info.note, framesRef.current);
+      onAdd(sureOne.matches[0], url.trim(), info.reel, info.images.slice(0, 10), info.note, framesRef.current, draft('rules', sureOne.matches[0]));
       return;
     }
+    // Otherwise the list, with the learned guess first when there is one.
+    if (smart?.results.length && !out.some((f) => f.matches.some((m) => m.lat === smart.results[0].lat && m.lng === smart.results[0].lng))) {
+      out.unshift({ phrase: smart.results[0].name, matches: smart.results });
+    }
+    const first = out.find((f) => f.matches.length);
+    lessonBase.current = draft(first && smart?.results.includes(first.matches[0]) ? smart.method : first ? 'rules' : 'none', first?.matches[0]);
     setFound(out);
     setBusy(false);
   };
@@ -554,7 +611,7 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
                     <div key={i} className="found__match">
                       <span className="dot" style={{ background: categoryById(m.category).color }} />
                       <span className="result__text"><strong>{m.name}</strong><small>{categoryById(m.category).label} · {m.address}</small></span>
-                      <button className="btn btn--small" disabled={added.has(key)} onClick={() => { setAdded(new Set(added).add(key)); onAdd(m, url.trim(), reel, gallery.slice(0, 10), note); }}>Show on map</button>
+                      <button className="btn btn--small" disabled={added.has(key)} onClick={() => { setAdded(new Set(added).add(key)); onAdd(m, url.trim(), reel, gallery.slice(0, 10), note, undefined, lessonBase.current); }}>Show on map</button>
                     </div>
                   );
                 })}
