@@ -345,13 +345,30 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
   const [added, setAdded] = useState<Set<string>>(new Set());
   const caption = reel.caption ?? '';
 
-  const findPlaces = async (text: string) => {
+  const framesRef = useRef<Promise<string[]>>();
+  const infoRef = useRef<{ reel: ReelInfo; images: string[]; note: string }>({ reel: {}, images: [], note: '' });
+  infoRef.current = { reel, images, note };
+
+  const findPlaces = async (text: string, auto = false) => {
     setBusy(true);
     const out = [];
+    let sure = 0;
     for (const p of analyzeCaption(text)) {
       const phrase = p.from === 'pin' ? `📍 ${p.query}${p.area ? `, ${p.area}` : ''}` : p.query;
       // One confident match (right kind of place) is shown alone; otherwise the top 3.
-      try { const f = await findCaptionPlace(p, near); out.push({ phrase, matches: f.results.slice(0, f.confident ? 1 : 3) }); } catch { out.push({ phrase, matches: [] }); }
+      try {
+        const f = await findCaptionPlace(p, near);
+        if (f.confident) sure++;
+        out.push({ phrase, matches: f.results.slice(0, f.confident ? 1 : 3) });
+      } catch { out.push({ phrase, matches: [] }); }
+    }
+    // The reel is about one place and we're sure which: put it on the map right away (with its key frames).
+    if (auto && out.length === 1 && sure === 1 && out[0].matches.length === 1) {
+      const frames = await Promise.race([framesRef.current ?? Promise.resolve([]), new Promise<string[]>((ok) => setTimeout(() => ok([]), 8000))]).catch(() => []);
+      const info = infoRef.current;
+      setBusy(false);
+      onAdd(out[0].matches[0], url.trim(), info.reel, [...info.images, ...frames].slice(0, 6), info.note);
+      return;
     }
     setFound(out);
     setBusy(false);
@@ -373,12 +390,15 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
         setReel({ caption: data.caption, author: data.author, authorName: data.authorName, avatar: data.avatar });
         setImages(Array.isArray(data.images) ? data.images : []);
         setStatus('read');
-        findPlaces(data.caption);
+        framesRef.current = undefined;
         if (data.video) {
           setFramesState('loading');
-          keyFrames(data.video, 3).then((f) => { if (!cancelled) { setFrames(f); setFramesState(f.length ? 'done' : 'failed'); } })
+          framesRef.current = keyFrames(data.video, 3);
+          framesRef.current.then((f) => { if (!cancelled) { setFrames(f); setFramesState(f.length ? 'done' : 'failed'); } })
             .catch(() => { if (!cancelled) setFramesState('failed'); });
         }
+        infoRef.current = { reel: { caption: data.caption, author: data.author, authorName: data.authorName, avatar: data.avatar }, images: Array.isArray(data.images) ? data.images : [], note: '' };
+        findPlaces(data.caption, true);
       } catch (e) {
         if (cancelled) return;
         setStatus('failed');

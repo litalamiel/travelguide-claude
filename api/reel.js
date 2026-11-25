@@ -87,7 +87,8 @@ async function fromPreview(code) {
   if (!og) return null;
   // Typical form: `123 likes, 4 comments - user on May 1, 2025: "caption…"`
   const d = decode(og);
-  const m = d.match(/^[\s\S]*? - ([\w.]+) on [^:]+:\s*"?([\s\S]*?)"?\.?$/);
+  // Forms: `123 likes, 4 comments - user on May 1, 2025: "caption…"` or `user on May 1, 2025: "caption…".`
+  const m = d.match(/^(?:[\s\S]*? - )?([\w.]+) on [^:"]+:\s*"([\s\S]*)"\.?\s*$/) || d.match(/^(?:[\s\S]*? - )?([\w.]+) on [^:"]+:\s*([\s\S]*)$/);
   const imageUrls = imgUrlsFrom(html);
   return m ? { caption: m[2], author: m[1], imageUrls } : { caption: d, imageUrls };
 }

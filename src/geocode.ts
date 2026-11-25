@@ -9,6 +9,8 @@ export interface SearchResult {
   category: CategoryId;
   /** OpenStreetMap kind, e.g. "tourism:hotel" or "highway:residential". */
   osm?: string;
+  /** Two-letter country code, e.g. "AT". */
+  cc?: string;
 }
 
 // Photon (by Komoot) is a free, keyless OpenStreetMap geocoder. It is fine for a
@@ -34,6 +36,7 @@ export async function searchPlaces(query: string, near?: { lat: number; lng: num
       lng,
       category: guessCategory(p.osm_key, p.osm_value),
       osm: `${p.osm_key}:${p.osm_value}`,
+      cc: p.countrycode,
     } satisfies SearchResult;
   });
 }
@@ -82,7 +85,7 @@ export function hintFrom(text: string): CategoryId | undefined {
 
 const PIN = /(?:📍|📌|🗺️?)/u;
 const STOP_WORDS = /^(the|a|an|my|our|this|that|best|top|day|travel|reels?|explore|fyp|viral|trip|vacation|wanderlust|instagood|foodie)$/i;
-const clean = (s: string) => s.replace(/[\p{Extended_Pictographic}️]/gu, ' ').replace(/\s+/g, ' ').replace(/^[\s,.:;|–—-]+|[\s,.:;|–—-]+$/g, '').trim();
+const clean = (s: string) => s.replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u200D]/gu, ' ').replace(/\s+/g, ' ').replace(/^[\s,.:;|–—-]+|[\s,.:;|–—-]+$/g, '').trim();
 
 /**
  * Read a caption the way a person would: a 📍 pin marks a location; words and
@@ -123,7 +126,8 @@ export function analyzeCaption(caption: string): CaptionPlace[] {
   // "at X" / "in X" is a strong signal even with pins ("📍 Lisbon … dinner at Taberna X").
   for (const line of lines) {
     const at = line.match(/\b(?:at|in|@)\s+([A-Z][\p{L}'’-]*(?:\s+(?:[A-Z][\p{L}'’-]*|dos|das|del|de|da|do|di|la|le|of)\b)*)/u);
-    if (at && (!pins.length || hintFrom(line))) add({ query: at[1], hint: hintFrom(line), from: 'at' });
+    const isPinArea = at && pins.some((p) => p.area?.toLowerCase().split(/,\s*/).includes(at[1].toLowerCase()));
+    if (at && !isPinArea && (!pins.length || hintFrom(line))) add({ query: at[1], hint: hintFrom(line), from: 'at' });
   }
   const ats = out.filter((p) => p.from === 'at');
   // A pin with no hint next to a named place is probably just the city: use it as the area.
@@ -179,32 +183,83 @@ const OSM_TAGS: Partial<Record<CategoryId, string[]>> = {
 };
 const tagRank = (tags: string[], osm = '') => { const i = tags.findIndex((t) => osm === t || osm.startsWith(`${t}:`)); return i < 0 ? 99 : i; };
 // Streets and plain areas are rarely what a reel is about.
-const NOT_A_PLACE = /^(highway|place|boundary:administrative|landuse|building:(yes|house|residential)):?/;
+const NOT_A_PLACE = /^(highway|place|boundary:administrative|landuse|building|railway|waterway):?/;
 
 /**
  * Search for a caption place. When the caption says what kind of place it is ("This hotel…", #familyhotel),
  * look only at that kind of place first; a single match of the right kind is treated as the answer.
  */
+// Country names as people write them in captions, so "Österreich" filters results instead of being searched for.
+const COUNTRIES: Record<string, string> = {
+  austria: 'AT', osterreich: 'AT', germany: 'DE', deutschland: 'DE', switzerland: 'CH', schweiz: 'CH', suisse: 'CH',
+  italy: 'IT', italia: 'IT', france: 'FR', spain: 'ES', espana: 'ES', portugal: 'PT', netherlands: 'NL', nederland: 'NL',
+  greece: 'GR', croatia: 'HR', hrvatska: 'HR', belgium: 'BE', uk: 'GB', 'united kingdom': 'GB', england: 'GB', scotland: 'GB',
+  ireland: 'IE', israel: 'IL', usa: 'US', 'united states': 'US', mexico: 'MX', japan: 'JP', thailand: 'TH', indonesia: 'ID', bali: 'ID',
+  morocco: 'MA', turkey: 'TR', turkiye: 'TR', norway: 'NO', sweden: 'SE', denmark: 'DK', iceland: 'IS', slovenia: 'SI', czechia: 'CZ',
+};
+const countryOf = (area?: string) => {
+  if (!area) return undefined;
+  const parts = norm(area).split(/,\s*/).map((x) => x.trim());
+  for (const part of parts.reverse()) if (COUNTRIES[part]) return COUNTRIES[part];
+  return undefined;
+};
+const withoutCountry = (area?: string) => area?.split(/,\s*/).filter((x) => !COUNTRIES[norm(x).trim()]).join(', ') || undefined;
+
+/** How much of the caption name appears in a map name, weighted by word length (long, distinctive words count more). */
+function nameScore(name: string, query: string) {
+  const k = keyWords(query);
+  if (!k.length) return 0;
+  const n = norm(name);
+  const total = k.reduce((t, w) => t + w.length, 0);
+  return k.filter((w) => n.includes(w)).reduce((t, w) => t + w.length, 0) / total;
+}
+
+/**
+ * Find the place a caption names. Tries, in order:
+ * 1. that kind of place (hotels for "This hotel…") whose name matches the caption's name;
+ * 2. any place with a matching name;
+ * 3. names that add the region ("Neuhaus Zillertal") → that kind of place nearby with the shorter name.
+ * `confident` means there is one clear answer, which the app puts on the map directly.
+ */
 export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; lng: number }): Promise<{ results: SearchResult[]; confident: boolean }> {
-  const q = p.area ? `${p.query}, ${p.area}` : p.query;
+  const cc = countryOf(p.area);
+  const area = withoutCountry(p.area);
+  const q = area ? `${p.query}, ${area}` : p.query;
   const tags = p.hint ? OSM_TAGS[p.hint] : undefined;
+  const inCountry = (r: SearchResult) => !cc || !r.cc || r.cc === cc;
+  const label = (rs: SearchResult[]) => (p.hint ? rs.map((r) => ({ ...r, category: p.hint! })) : rs);
+  const rank = (rs: SearchResult[]) => rs.filter(inCountry)
+    .map((r) => ({ r, s: nameScore(r.name, p.query), t: tags ? tagRank(tags, r.osm) : 0 }))
+    .filter((x) => x.s >= 0.5)
+    .sort((a, b) => b.s - a.s || a.t - b.t);
+  const clear = (xs: { s: number; t: number }[]) => xs.length > 0 && (xs.length === 1 || xs[0].s - xs[1].s >= 0.2 || (xs[0].s === xs[1].s && xs[0].t < xs[1].t) || xs[0].s === 1);
+
+  // 1. The right kind of place with a matching name.
   if (tags) {
-    // Only trust a typed match whose name really contains the caption's words (search is fuzzy).
-    let typed = (await searchPlaces(q, undefined, tags)).filter((r) => nameHas(r.name, p.query));
-    if (!typed.length && p.area) typed = (await searchPlaces(p.query, undefined, tags)).filter((r) => nameHas(r.name, p.query));
-    if (typed.length) return { results: typed.map((r) => ({ ...r, category: p.hint! })), confident: true };
+    let typed = rank(await searchPlaces(q, near, tags, 10));
+    if (!typed.length && area) typed = rank(await searchPlaces(p.query, near, tags, 10));
+    if (typed.length) return { results: label(typed.map((x) => x.r)), confident: clear(typed) };
   }
-  let results = await searchPlaces(q, near);
-  if (tags && results.length) {
-    // Names in captions often add the region ("📍 Neuhaus Zillertal" is Hotel Neuhaus in the Zillertal valley).
-    // Find where the name points, then look for that kind of place with a shorter name nearby.
-    const anchor = results[0];
+  // 2. Any place with a matching name (streets and plain buildings left out).
+  let all = (await searchPlaces(q, near, [], 10)).filter(inCountry);
+  if (!all.length && area) all = (await searchPlaces(p.query, near, [], 10)).filter(inCountry);
+  const places = all.filter((r) => !NOT_A_PLACE.test(r.osm ?? ''));
+  const named = rank(places);
+  if (named.length && (!tags || named[0].t < 99)) return { results: label(named.map((x) => x.r)), confident: clear(named) };
+
+  // 2b. Resorts are often mapped as a site (landuse or building) whose name says what it is.
+  const sites = rank(all.filter((r) => /^(landuse|building)/.test(r.osm ?? '') && p.hint && hintFrom(r.name) === p.hint));
+  if (sites.length) return { results: label(sites.map((x) => x.r)), confident: clear(sites) };
+
+  // 3. The name points to an area: look for that kind of place with a shorter name nearby.
+  if (tags && all.length) {
+    const anchor = all[0];
     const words = p.query.split(/\s+/);
     for (let n = words.length - 1; n >= 1; n--) {
       const sub = words.slice(0, n).join(' ');
       if (!keyWords(sub).length) break;
       const typed = (await searchPlaces(sub, anchor, tags, 15))
-        .filter((r) => nameHas(r.name, sub))
+        .filter((r) => nameHas(r.name, sub) && inCountry(r))
         // Rank: whole-word name, then the main kind (a hotel before a guest house), then distance.
         .map((r) => ({ r, d: distKm(anchor, r), w: wholeWord(r.name, sub), t: tagRank(tags, r.osm) }))
         .filter((x) => x.d < 40)
@@ -212,15 +267,11 @@ export async function findCaptionPlace(p: CaptionPlace, near?: { lat: number; ln
       if (typed.length) {
         const [best, next] = typed;
         const confident = !next || (best.w && !next.w) || best.t < next.t;
-        return { results: typed.map((x) => ({ ...x.r, category: p.hint! })), confident };
+        return { results: label(typed.map((x) => x.r)), confident };
       }
     }
   }
-  if (!results.length && p.area) results = await searchPlaces(p.query, near);
-  const real = results.filter((r) => !NOT_A_PLACE.test(r.osm ?? ''));
-  results = real.length ? real : results;
-  if (p.hint) results = results.map((r) => ({ ...r, category: p.hint! }));
-  return { results, confident: false };
+  return { results: label((places.length ? places : all).slice(0, 3)), confident: false };
 }
 
 /** Kept for older callers: just the search phrases. */
