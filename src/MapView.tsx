@@ -7,8 +7,8 @@ import { KIDS, STAR, categoryById } from './categories';
 // To switch to Google Maps later, replace this component (see README).
 export const MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron';
 
-/** Forest & Brass map tint: cream land, sage water and parks, quiet roads. */
-const MAP_TINT = { land: '#F1F0E9', water: '#CCD8D3', green: '#E2E7DA', building: '#E7E5DC', road: '#FFFFFF', label: '#69726B' };
+/** Atelier map tint: cream land, soft sage water and parks, quiet roads. */
+const MAP_TINT = { land: '#F3F0E8', water: '#D9DDD5', green: '#E6E7DB', building: '#ECE8DE', road: '#FFFFFF', label: '#8B8F80' };
 export function tintMap(m: maplibregl.Map) {
   for (const l of m.getStyle()?.layers ?? []) {
     const id = l.id;
