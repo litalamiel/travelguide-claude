@@ -285,7 +285,12 @@ export default function App() {
           <ImportReel
             near={center}
             onClose={() => setPanel('none')}
-            onAdd={(r, url, reel, photos, note) => { setPanel('none'); preview(r, { source: 'reel', reelUrl: url, reel, photos, note: note || undefined }); }}
+            onAdd={(r, url, reel, photos, note, later) => {
+              setPanel('none');
+              preview(r, { source: 'reel', reelUrl: url, reel, photos, note: note || undefined });
+              // Key frames keep arriving after the pin is shown: add them to the card if it's still open.
+              later?.then((f) => f.length && setPending((p) => (p && p.reelUrl === url ? { ...p, photos: [...(p.photos ?? []), ...f.filter((x) => !p.photos?.includes(x))].slice(0, 10) } : p))).catch(() => {});
+            }}
           />
         )}
       </main>
@@ -331,7 +336,7 @@ const isReelLink = (u: string) => /instagram\.com\/(?:[\w.]+\/)?(?:reels?|p|tv)\
 
 type ReelInfo = NonNullable<Place['reel']>;
 
-function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string, reel: ReelInfo, photos: string[], note: string) => void }) {
+function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number }; onClose: () => void; onAdd: (r: SearchResult, url: string, reel: ReelInfo, photos: string[], note: string, later?: Promise<string[]>) => void }) {
   const [url, setUrl] = useState('');
   const [reel, setReel] = useState<ReelInfo>({});
   const [images, setImages] = useState<string[]>([]);
@@ -364,10 +369,10 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
     }
     // The reel is about one place and we're sure which: put it on the map right away (with its key frames).
     if (auto && out.length === 1 && sure === 1 && out[0].matches.length === 1) {
-      const frames = await Promise.race([framesRef.current ?? Promise.resolve([]), new Promise<string[]>((ok) => setTimeout(() => ok([]), 8000))]).catch(() => []);
+      // Show the pin right away; the key frames join the card as soon as they're ready.
       const info = infoRef.current;
       setBusy(false);
-      onAdd(out[0].matches[0], url.trim(), info.reel, [...info.images, ...frames].slice(0, 6), info.note);
+      onAdd(out[0].matches[0], url.trim(), info.reel, info.images.slice(0, 10), info.note, framesRef.current);
       return;
     }
     setFound(out);
@@ -393,7 +398,7 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
         framesRef.current = undefined;
         if (data.video) {
           setFramesState('loading');
-          framesRef.current = keyFrames(data.video, 3);
+          framesRef.current = keyFrames(data.video, 8);
           framesRef.current.then((f) => { if (!cancelled) { setFrames(f); setFramesState(f.length ? 'done' : 'failed'); } })
             .catch(() => { if (!cancelled) setFramesState('failed'); });
         }
@@ -460,7 +465,7 @@ function ImportReel({ near, onClose, onAdd }: { near: { lat: number; lng: number
                     <div key={i} className="found__match">
                       <span className="dot" style={{ background: categoryById(m.category).color }} />
                       <span className="result__text"><strong>{m.name}</strong><small>{categoryById(m.category).label} · {m.address}</small></span>
-                      <button className="btn btn--small" disabled={added.has(key)} onClick={() => { setAdded(new Set(added).add(key)); onAdd(m, url.trim(), reel, gallery.slice(0, 6), note); }}>Show on map</button>
+                      <button className="btn btn--small" disabled={added.has(key)} onClick={() => { setAdded(new Set(added).add(key)); onAdd(m, url.trim(), reel, gallery.slice(0, 10), note); }}>Show on map</button>
                     </div>
                   );
                 })}

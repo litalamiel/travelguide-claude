@@ -35,8 +35,32 @@ export async function translateToEnglish(text: string): Promise<{ text: string; 
   return { text: d.text, lang: d.lang };
 }
 
-/** Take a few still frames from the reel video (spread through it), as small JPEGs. */
-export async function keyFrames(src: string, count = 3, width = 720): Promise<string[]> {
+/** Colour histogram (4×4×4 bins), brightness and sharpness of a small frame. */
+function frameStats(data: Uint8ClampedArray, w: number, h: number) {
+  const hist = new Float32Array(64);
+  let lum = 0, edge = 0;
+  const px = w * h;
+  for (let i = 0; i < px; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+    hist[((r >> 6) << 4) | ((g >> 6) << 2) | (b >> 6)] += 1 / px;
+    const l = (r * 3 + g * 6 + b) / 10;
+    lum += l / px;
+    if (i % w < w - 1) {
+      const j = i + 1;
+      edge += Math.abs(l - (data[j * 4] * 3 + data[j * 4 + 1] * 6 + data[j * 4 + 2]) / 10) / px;
+    }
+  }
+  return { hist, lum, edge };
+}
+const histDiff = (a: Float32Array, b: Float32Array) => { let d = 0; for (let i = 0; i < 64; i++) d += Math.abs(a[i] - b[i]); return d / 2; };
+
+/**
+ * Pick the reel's key scenes (the pool, the rooms, the kids' club…), not evenly spaced stills.
+ * Samples the video every half second, splits it where the picture changes (a cut),
+ * keeps the sharpest frame of each scene, drops near-repeats and dark or blank frames,
+ * and returns up to `max` frames in reel order as small JPEGs.
+ */
+export async function keyFrames(src: string, max = 8, width = 720): Promise<string[]> {
   const url = src.startsWith('/') ? `${API_BASE}${src}` : src;
   const video = document.createElement('video');
   video.crossOrigin = 'anonymous';
@@ -49,14 +73,55 @@ export async function keyFrames(src: string, count = 3, width = 720): Promise<st
     video.addEventListener(ev, () => { clearTimeout(t); ok(); }, { once: true });
     video.addEventListener('error', () => { clearTimeout(t); fail(new Error('video')); }, { once: true });
   });
+  const seek = async (t: number) => { video.currentTime = t; await once('seeked'); };
   await once('loadeddata');
   const d = video.duration || 0;
-  if (!d) return [];
+  if (!d || !isFinite(d)) return [];
+
+  // 1. Sample small frames through the reel.
+  const small = document.createElement('canvas');
+  small.width = 48; small.height = 64;
+  const sctx = small.getContext('2d', { willReadFrequently: true })!;
+  const step = Math.max(0.5, d / 90);
+  const samples: { t: number; hist: Float32Array; lum: number; edge: number }[] = [];
+  const started = Date.now();
+  for (let t = Math.min(0.3, d / 2); t < d - 0.05 && Date.now() - started < 25000; t += step) {
+    await seek(t);
+    sctx.drawImage(video, 0, 0, small.width, small.height);
+    samples.push({ t, ...frameStats(sctx.getImageData(0, 0, small.width, small.height).data, small.width, small.height) });
+  }
+  if (!samples.length) return [];
+
+  // 2. Split into scenes where the colours jump.
+  const scenes: (typeof samples)[] = [[samples[0]]];
+  for (let i = 1; i < samples.length; i++) {
+    if (histDiff(samples[i].hist, samples[i - 1].hist) > 0.3) scenes.push([]);
+    scenes[scenes.length - 1].push(samples[i]);
+  }
+
+  // 3. Best frame per scene: sharp, not too dark or washed out, away from the cut.
+  const usable = (f: (typeof samples)[0]) => f.lum > 25 && f.lum < 235 && f.edge > 2;
+  let picks = scenes.map((sc) => {
+    const inner = sc.length > 2 ? sc.slice(Math.floor(sc.length * 0.2), Math.ceil(sc.length * 0.8)) : sc;
+    const best = [...inner].sort((a, b) => b.edge - a.edge)[0];
+    return { ...best, len: sc.length };
+  }).filter(usable);
+  if (!picks.length) picks = [samples[Math.floor(samples.length / 2)]].map((f) => ({ ...f, len: 1 }));
+
+  // 4. Drop near-repeats (the reel cutting back to the same shot), keeping the longer scene.
+  const chosen: typeof picks = [];
+  for (const p of [...picks].sort((a, b) => b.len - a.len || b.edge - a.edge)) {
+    if (chosen.some((c) => histDiff(c.hist, p.hist) < 0.18)) continue;
+    chosen.push(p);
+    if (chosen.length >= max) break;
+  }
+  chosen.sort((a, b) => a.t - b.t);
+
+  // 5. Full-size stills.
   const canvas = document.createElement('canvas');
   const out: string[] = [];
-  for (let k = 0; k < count; k++) {
-    video.currentTime = Math.min(d - 0.1, d * (0.15 + (0.7 * k) / Math.max(1, count - 1)));
-    await once('seeked');
+  for (const c of chosen) {
+    await seek(c.t);
     const scale = Math.min(1, width / (video.videoWidth || width));
     canvas.width = Math.round((video.videoWidth || width) * scale);
     canvas.height = Math.round((video.videoHeight || width) * scale);
